@@ -14,7 +14,7 @@ Thank you for your interest in contributing to **`smart-context-packer`** (`scp`
 ### Installation
 Clone the repository and install dependencies:
 ```bash
-git clone https://github.com/username/smart-context-packer.git
+git clone https://github.com/CaptainFatih61/smart-context-packer.git
 cd smart-context-packer
 npm install
 ```

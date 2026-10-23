@@ -55,43 +55,51 @@ export function getGitModifiedFiles(cwd: string, stagedOnly = false): string[] {
           .forEach((f) => files.add(f.replace(/\\/g, '/')));
       } catch {
         // If repo has no HEAD commit yet, fallback to git diff
-        const fallbackDiff = execSync('git diff --name-only', {
+        try {
+          const fallbackDiff = execSync('git diff --name-only', {
+            cwd,
+            stdio: ['pipe', 'pipe', 'ignore'],
+            encoding: 'utf-8',
+          });
+          fallbackDiff
+            .split(/\r?\n/)
+            .map((l) => l.trim())
+            .filter(Boolean)
+            .forEach((f) => files.add(f.replace(/\\/g, '/')));
+        } catch {
+          // Ignore fallback diff errors
+        }
+      }
+
+      // 2. Untracked and staged/status porcelain files
+      try {
+        const statusOutput = execSync('git status --porcelain', {
           cwd,
           stdio: ['pipe', 'pipe', 'ignore'],
           encoding: 'utf-8',
         });
-        fallbackDiff
-          .split(/\r?\n/)
-          .map((l) => l.trim())
-          .filter(Boolean)
-          .forEach((f) => files.add(f.replace(/\\/g, '/')));
+
+        statusOutput.split(/\r?\n/).forEach((line) => {
+          if (!line || line.trim().length === 0) return;
+          const status = line.slice(0, 2);
+          // Exclude deleted files (' D', 'D ')
+          if (status.includes('D')) return;
+
+          let filePath = line.slice(3).trim();
+          // Handle renamed files "old -> new"
+          if (filePath.includes(' -> ')) {
+            filePath = filePath.split(' -> ')[1]!.trim();
+          }
+          // Remove surrounding quotes if git added them
+          filePath = filePath.replace(/^"(.*)"$/, '$1');
+
+          if (filePath) {
+            files.add(filePath.replace(/\\/g, '/'));
+          }
+        });
+      } catch {
+        // Ignore status porcelain errors
       }
-
-      // 2. Untracked and staged/status porcelain files
-      const statusOutput = execSync('git status --porcelain', {
-        cwd,
-        stdio: ['pipe', 'pipe', 'ignore'],
-        encoding: 'utf-8',
-      });
-
-      statusOutput.split(/\r?\n/).forEach((line) => {
-        if (!line || line.trim().length === 0) return;
-        const status = line.slice(0, 2);
-        // Exclude deleted files (' D', 'D ')
-        if (status.includes('D')) return;
-
-        let filePath = line.slice(3).trim();
-        // Handle renamed files "old -> new"
-        if (filePath.includes(' -> ')) {
-          filePath = filePath.split(' -> ')[1]!.trim();
-        }
-        // Remove surrounding quotes if git added them
-        filePath = filePath.replace(/^"(.*)"$/, '$1');
-
-        if (filePath) {
-          files.add(filePath.replace(/\\/g, '/'));
-        }
-      });
     }
   } catch {
     return [];
@@ -125,11 +133,12 @@ export function getGitDiffPatch(cwd: string, stagedOnly = false): string {
 
   try {
     if (stagedOnly) {
-      return execSync('git diff --cached', {
+      const patch = execSync('git diff --cached', {
         cwd,
         stdio: ['pipe', 'pipe', 'ignore'],
         encoding: 'utf-8',
-      }).trim();
+      });
+      return patch.replace(/\r\n/g, '\n').trim();
     }
 
     try {
@@ -138,18 +147,21 @@ export function getGitDiffPatch(cwd: string, stagedOnly = false): string {
         cwd,
         stdio: ['pipe', 'pipe', 'ignore'],
         encoding: 'utf-8',
-      }).trim();
+      });
 
-      if (diffHead) return diffHead;
+      if (diffHead && diffHead.trim()) {
+        return diffHead.replace(/\r\n/g, '\n').trim();
+      }
     } catch {
       // Fallback if no commits exist
     }
 
-    return execSync('git diff', {
+    const fallbackPatch = execSync('git diff', {
       cwd,
       stdio: ['pipe', 'pipe', 'ignore'],
       encoding: 'utf-8',
-    }).trim();
+    });
+    return fallbackPatch.replace(/\r\n/g, '\n').trim();
   } catch {
     return '';
   }

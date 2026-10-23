@@ -17,6 +17,14 @@
   ],
   "author": "Antigravity Team",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/CaptainFatih61/smart-context-packer.git"
+  },
+  "bugs": {
+    "url": "https://github.com/CaptainFatih61/smart-context-packer/issues"
+  },
+  "homepage": "https://github.com/CaptainFatih61/smart-context-packer#readme",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -44,6 +52,7 @@
     "build": "tsup",
     "dev": "tsup --watch",
     "typecheck": "tsc --noEmit",
+    "pretest": "npm run build",
     "test": "vitest run",
     "test:watch": "vitest",
     "prepack": "npm run build"

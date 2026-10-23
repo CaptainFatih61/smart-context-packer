@@ -6,7 +6,7 @@
 
 *Pack only the code your AI assistant actually needs to see — zero hallucinations, minimal tokens.*
 
-[![CI](https://github.com/username/smart-context-packer/actions/workflows/ci.yml/badge.svg)](https://github.com/username/smart-context-packer/actions)
+[![CI](https://github.com/CaptainFatih61/smart-context-packer/actions/workflows/ci.yml/badge.svg)](https://github.com/CaptainFatih61/smart-context-packer/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![TypeScript: Strict](https://img.shields.io/badge/TypeScript-Strict%20NodeNext-blue.svg)](https://www.typescriptlang.org/)
 [![Tested with Vitest](https://img.shields.io/badge/Tested%20with-Vitest-729B1B.svg)](https://vitest.dev/)

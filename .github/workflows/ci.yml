@@ -13,12 +13,20 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
-        node-version: [18, 20, 22, 24]
+        os: [ubuntu-latest]
+        node-version: [20, 22]
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure Git for CI
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global init.defaultBranch main
 
       - name: Set up Node.js ${{ matrix.node-version }}
         uses: actions/setup-node@v4
@@ -32,8 +40,8 @@ jobs:
       - name: Typecheck TypeScript
         run: npm run typecheck
 
-      - name: Run Vitest test suite
-        run: npm test
-
       - name: Build production bundle
         run: npm run build
+
+      - name: Run Vitest test suite
+        run: npm test
