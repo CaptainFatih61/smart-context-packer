@@ -642,9 +642,13 @@ export class DependencyAnalyzer {
    * Converts an absolute or relative path to a normalized relative workspace path.
    */
   private toRelative(filePath: string): string {
-    const rel = path.isAbsolute(filePath)
-      ? path.relative(this.cwd, filePath)
-      : filePath;
+    if (!path.isAbsolute(filePath)) {
+      return filePath.replace(/\\/g, '/').replace(/^\.\//, '');
+    }
+    const rel = path.relative(this.cwd, filePath);
+    if (path.isAbsolute(rel) || /^[a-zA-Z]:/.test(rel)) {
+      return filePath.replace(/\\/g, '/');
+    }
     return rel.replace(/\\/g, '/').replace(/^\.\//, '');
   }
 

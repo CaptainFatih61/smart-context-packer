@@ -12,20 +12,19 @@
 [![Tested with Vitest](https://img.shields.io/badge/Tested%20with-Vitest-729B1B.svg)](https://vitest.dev/)
 [![OpenAI OSS Grant](https://img.shields.io/badge/OpenAI%20OSS%20Grant-Candidate-412991.svg)](https://openai.com/)
 
-[![npm version](https://img.shields.io/badge/version-1.2.0-blue.svg)](package.json)
+[![npm version](https://img.shields.io/badge/version-1.3.0-blue.svg)](package.json)
 [![MCP: Stdio Protocol](https://img.shields.io/badge/MCP-JSON--RPC%202.0-brightgreen.svg)](https://modelcontextprotocol.io/)
 
 [Quickstart](#-quickstart) •
-[Why SCP?](#-why-smart-context-packer) •
 [Features](#-key-features) •
+[Token-Budget Optimizer](#-auto-token-budget-optimizer-v130) •
+[Agent Rule Generator](#-automatic-background-agent-rule-generator-v130) •
 [Git Diff Resolver](#-git-diff--working-tree-resolver-v120) •
 [Smart Prisma Extractor](#-smart-prisma-schema-model-extractor-v120) •
-[MCP Stdio Server](#-model-context-protocol-mcp-server-v120) •
+[MCP Stdio Server](#-model-context-protocol-mcp-server-v130) •
 [VS Code Tasks](#-vs-code--ai-ide-tasks-generator-v120) •
-[Benchmarks](#-token-economy-benchmarks) •
 [CLI Usage](#-cli-usage--flags) •
-[Programmatic API](#-programmatic-library-api) •
-[FiveM & Lua Support](#-fivem--game-scripting-support)
+[Programmatic API](#-programmatic-library-api)
 
 ---
 
@@ -55,8 +54,14 @@ npx smart-context-packer src/auth/login.ts -c
 # Shorthand alias with skeleton mode:
 npx scp src/server.ts -d 2 -s -c
 
+# Auto-skeletonize deep dependencies to strictly fit within token budget:
+npx scp src/server.ts -m 4000 -c
+
 # Pack all uncommitted Git changes + dependencies + unified diff patch:
 npx scp --diff -c
+
+# Configure AI coding assistants (Cursor, Antigravity, Copilot) background rules:
+npx scp --init-agent
 
 # Start zero-dependency Model Context Protocol (MCP) stdio server:
 npx scp --mcp
@@ -177,6 +182,51 @@ Zero-dependency JSON-RPC 2.0 stdio server enabling AI coding agents (Claude Desk
 ### 8. 💻 VS Code & AI IDE Tasks Generator (`--init-vscode`)
 One-command setup of `.vscode/tasks.json` with three Command Palette tasks for instant clipboard copying of active file context, skeleton signatures, or git diffs.
 
+### 9. 🎯 Auto Token-Budget Optimizer (`--max-tokens`)
+Automatically monitors the total estimated token count. If the pack exceeds your specified budget, it progressively converts deep dependencies into skeleton signatures (from deepest depth down to depth 1, keeping depth 0 targets intact) to guarantee fitting within LLM window limits.
+
+### 10. 🤖 Automatic Background Agent Rule Generator (`--init-agent`)
+One-command generator for `.agent/rules/smart-context-packer.md` and `.cursorrules`. Directs AI coding assistants (Cursor, Antigravity, Copilot, Claude Desktop) to autonomously invoke `smart-context-packer` MCP tools in the background before modifying files.
+
+---
+
+## 🎯 Auto Token-Budget Optimizer (v1.3.0)
+
+Context limits (or expensive inference costs) often require fitting within a precise token budget. Instead of manually guessing whether to include dependencies or strip function bodies, use `--max-tokens`:
+
+```bash
+# Automatically skeletonize dependencies if total pack exceeds 4,000 tokens:
+scp src/server.ts -m 4000 -c
+```
+
+### How It Works:
+1. `scp` analyzes the full dependency graph and calculates the estimated tokens for all nodes.
+2. If total tokens exceed `maxTokens`:
+   - It leaves **depth 0 target files intact** (preserving all implementation details for files you are actively editing).
+   - It sorts non-target dependency files starting from the **highest dependency depth** (depth 3, then depth 2, then depth 1) and by largest token size.
+   - It progressively converts these dependency nodes into **skeleton type signatures** until the total estimated tokens fall within `maxTokens`.
+3. The terminal summary reports `Budget Optimized: ✔` and shows the exact tokens saved (`Budget Saved: X tokens`).
+
+---
+
+## 🤖 Automatic Background Agent Rule Generator (v1.3.0)
+
+Stop running manual CLI commands every time you chat with an AI assistant. With one command, configure your AI coding assistants to automatically engineer their own context:
+
+```bash
+scp --init-agent
+```
+
+### What It Configures:
+1. **`.agent/rules/smart-context-packer.md`**: Creates a formal agent directive for Antigravity IDE, Claude Desktop, and autonomous agent loops.
+2. **`.cursorrules`**: Automatically creates or merges into your project's `.cursorrules` without duplicating existing rules.
+
+### Autonomous Agent Behavior:
+Once initialized, your AI assistant will:
+- Autonomously invoke `inspect_dependency_graph` before proposing file modifications.
+- Call `pack_context` with optimal depth and token budgets instead of dumping raw directories.
+- Call `pack_git_diff` to review your uncommitted working tree and staged patches.
+
 ---
 
 ## 🌿 Git Diff & Working Tree Resolver (v1.2.0)
@@ -290,8 +340,9 @@ scp --mcp
 
 | Tool | Parameters | Description |
 |:---|:---|:---|
-| `pack_context` | `targets: string[]`<br>`depth?: number`<br>`skeleton?: boolean`<br>`includeDiff?: boolean` | Analyzes dependencies, redacts secrets, extracts Prisma models, and returns the formatted AI prompt pack. |
+| `pack_context` | `targets: string[]`<br>`depth?: number`<br>`skeleton?: boolean`<br>`maxTokens?: number`<br>`includeDiff?: boolean`<br>`format?: "md" \| "xml"` | Analyzes dependencies, redacts secrets, extracts Prisma models, applies automatic token-budget optimizer, and returns the formatted AI prompt pack. |
 | `inspect_dependency_graph` | `targets: string[]`<br>`reverse?: boolean` | Analyzes module imports/exports and returns an ASCII hierarchy tree and dependency map without source code. |
+| `pack_git_diff` | `stagedOnly?: boolean`<br>`depth?: number`<br>`skeleton?: boolean`<br>`maxTokens?: number`<br>`format?: "md" \| "xml"` | Packages uncommitted working-tree or staged git modifications, unified diff patch, and surrounding dependency graph in a single autonomous tool call. |
 
 ---
 
@@ -339,8 +390,10 @@ scp [options] [targets...]
 |:---|:---:|:---|:---:|
 | `--diff` | | Discover all uncommitted modified/untracked files as targets & include diff patch | `false` |
 | `--staged` | | Discover staged files as targets & include staged diff patch | `false` |
-| `--mcp` | | Start native JSON-RPC 2.0 Model Context Protocol (MCP) stdio server | `false` |
+| `--max-tokens <number>` | `-m` | Auto-skeletonize dependencies from deepest depth to fit token budget | |
+| `--init-agent` | | Generate `.agent/rules/smart-context-packer.md` & `.cursorrules` for AI agents | `false` |
 | `--init-vscode` | | Generate or update `.vscode/tasks.json` with ready-to-run IDE tasks | `false` |
+| `--mcp` | | Start native JSON-RPC 2.0 Model Context Protocol (MCP) stdio server | `false` |
 | `--depth <number>` | `-d` | Dependency traversal depth (`0` = target only, `1` = direct, `2` = transitive) | `2` |
 | `--reverse` | `-r` | Discover workspace files that import the target file | `false` |
 | `--skeleton` | `-s` | Strip function bodies of dependencies to type signatures | `false` |
@@ -453,6 +506,9 @@ for (const [filePath, node] of graph.nodes) {
 - [x] Smart Prisma schema model & relation extractor (`prisma/schema.prisma`)
 - [x] Official Model Context Protocol (MCP) server integration (`--mcp`)
 - [x] VS Code Command Palette tasks generator (`--init-vscode`)
+- [x] Auto Token-Budget Optimizer (`--max-tokens`) with smart depth-descending skeletonization
+- [x] Background Agent Rule Generator (`--init-agent` for Cursor & Antigravity IDE)
+- [x] Autonomous `pack_git_diff` MCP tool for working tree and staged diff inspection
 - [ ] Python AST dependency analyzer (`import`, `from ... import`)
 - [ ] Rust module resolver (`mod`, `use crate::*`)
 - [ ] Interactive VS Code extension with one-click "Pack Context" context menu

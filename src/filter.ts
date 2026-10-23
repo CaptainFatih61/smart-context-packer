@@ -78,6 +78,9 @@ export class FileFilter {
   public isIgnored(relativeFilePath: string): boolean {
     const normalized = relativeFilePath.replace(/\\/g, '/').replace(/^\.\//, '');
     if (!normalized || normalized === '.') return false;
+    if (path.isAbsolute(normalized) || /^[a-zA-Z]:\//.test(normalized) || normalized.startsWith('/')) {
+      return false;
+    }
     return this.ig.ignores(normalized);
   }
 }

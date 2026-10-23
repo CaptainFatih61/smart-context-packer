@@ -5,6 +5,7 @@ import { packContext } from './index.js';
 import { renderTerminalSummary } from './tokens.js';
 import { startMcpServer } from './mcp.js';
 import { initVsCodeTasks } from './ide.js';
+import { initAgentRules } from './agent-rules.js';
 import type { OutputFormat } from './types.js';
 
 const program = new Command();
@@ -14,17 +15,19 @@ program
   .description(
     '📦 smart-context-packer: AI-optimized dependency graph context packer for LLM coding assistants'
   )
-  .version('1.2.0', '-v, --version', 'Output current version')
+  .version('1.3.0', '-v, --version', 'Output current version')
   .argument('[targets...]', 'Target entry file(s) or directories to analyze and pack')
   .option('-d, --depth <number>', 'Dependency traversal depth (default: 2)', '2')
   .option('-r, --reverse', 'Include reverse dependencies (files importing target)', false)
   .option('-s, --skeleton', 'Strip function/class bodies of dependencies to type signatures', false)
+  .option('-m, --max-tokens <number>', 'Auto-skeletonize dependencies to fit token budget')
   .option('-f, --format <format>', 'Output format: md (Markdown) or xml (XML)', 'md')
   .option('-o, --output <file>', 'Output file path (default: .context-pack.md)', '.context-pack.md')
   .option('-c, --copy', 'Copy packed prompt directly to system clipboard', false)
   .option('--diff', 'Automatically discover uncommitted modified & untracked Git files and attach diff patch', false)
   .option('--staged', 'Automatically discover staged Git files and attach staged diff patch', false)
   .option('--mcp', 'Launch Model Context Protocol (MCP) JSON-RPC 2.0 stdio server', false)
+  .option('--init-agent', 'Generate .agent/rules/smart-context-packer.md and .cursorrules for AI coding assistants', false)
   .option('--init-vscode', 'Initialize or update .vscode/tasks.json with SCP Command Palette tasks', false)
   .option('--stdout', 'Print packed context prompt directly to standard output', false)
   .option('--tree-only', 'Generate only hierarchy tree and dependency map without file bodies', false)
@@ -38,7 +41,22 @@ program
         return;
       }
 
-      // 2. Handle VS Code tasks generation
+      // 2. Handle Agent Rules initialization
+      if (options.initAgent) {
+        const result = initAgentRules(process.cwd());
+        console.log('');
+        console.log(pc.green('✔ ') + pc.bold(pc.white('Agent Rules Initialized Successfully!')));
+        console.log(pc.gray(`  Agent Rules:  `) + pc.cyan(result.agentRulesPath));
+        console.log(pc.gray(`  Status:       `) + pc.yellow(result.agentRulesCreated ? 'Created new file' : 'Updated existing file'));
+        console.log(pc.gray(`  Cursor Rules: `) + pc.cyan(result.cursorRulesPath));
+        console.log(pc.gray(`  Status:       `) + pc.yellow(result.cursorRulesCreated ? 'Created new file' : 'Updated existing file'));
+        console.log('');
+        console.log(pc.white('AI coding assistants will now autonomously call ') + pc.cyan(pc.bold('smart-context-packer')) + pc.white(' MCP tools!'));
+        console.log('');
+        return;
+      }
+
+      // 3. Handle VS Code tasks generation
       if (options.initVscode) {
         const result = initVsCodeTasks(process.cwd());
         console.log('');
@@ -54,7 +72,7 @@ program
         return;
       }
 
-      // 3. Validate targets when not in diff/staged mode
+      // 4. Validate targets when not in diff/staged mode
       const hasExplicitTargets = Array.isArray(targets) && targets.length > 0;
       if (!hasExplicitTargets && !options.diff && !options.staged) {
         console.error(pc.red('Error: Please specify target file(s) or use --diff / --staged to pack modified Git files.'));
@@ -68,6 +86,15 @@ program
         process.exit(1);
       }
 
+      let parsedMaxTokens: number | undefined;
+      if (options.maxTokens !== undefined) {
+        parsedMaxTokens = parseInt(options.maxTokens, 10);
+        if (isNaN(parsedMaxTokens) || parsedMaxTokens <= 0) {
+          console.error(pc.red(`Error: Invalid max-tokens value "${options.maxTokens}". Must be a positive integer.`));
+          process.exit(1);
+        }
+      }
+
       const format: OutputFormat = options.format.toLowerCase() === 'xml' ? 'xml' : 'md';
       const shouldSaveFile = !options.stdout;
       const outputFile = shouldSaveFile ? options.output : undefined;
@@ -77,6 +104,7 @@ program
         depth: parsedDepth,
         reverse: options.reverse,
         skeleton: options.skeleton,
+        maxTokens: parsedMaxTokens,
         diff: options.diff,
         staged: options.staged,
         format,

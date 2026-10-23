@@ -69,6 +69,8 @@ export interface AnalyzerOptions {
   diff?: boolean;
   /** If true, includes only staged git files */
   staged?: boolean;
+  /** Maximum token budget. Automatically skeletonizes deeper dependencies until within budget */
+  maxTokens?: number;
 }
 
 export interface TokenStats {
@@ -77,6 +79,10 @@ export interface TokenStats {
   totalChars: number;
   pct128k: number;
   pct200k: number;
+  /** True if deeper dependencies were skeletonized to fit within maxTokens */
+  budgetOptimized?: boolean;
+  /** Number of tokens saved through automatic budget skeletonization */
+  tokensSavedByBudget?: number;
   fileBreakdown: Array<{
     filePath: string;
     tokens: number;

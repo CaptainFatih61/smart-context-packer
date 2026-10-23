@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import child_process from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, it, expect } from 'vitest';
@@ -25,7 +28,7 @@ describe('Model Context Protocol (MCP) Server', () => {
     expect(res?.id).toBe(1);
     expect(res?.result).toHaveProperty('protocolVersion');
     expect((res?.result as any).serverInfo.name).toBe('smart-context-packer');
-    expect((res?.result as any).serverInfo.version).toBe('1.2.0');
+    expect((res?.result as any).serverInfo.version).toBe('1.3.0');
   });
 
   it('handles ping request', async () => {
@@ -50,11 +53,12 @@ describe('Model Context Protocol (MCP) Server', () => {
     expect(res?.id).toBe(3);
     const tools = (res?.result as any).tools;
     expect(Array.isArray(tools)).toBe(true);
-    expect(tools.length).toBe(2);
+    expect(tools.length).toBe(3);
 
     const names = tools.map((t: any) => t.name);
     expect(names).toContain('pack_context');
     expect(names).toContain('inspect_dependency_graph');
+    expect(names).toContain('pack_git_diff');
   });
 
   it('calls inspect_dependency_graph tool', async () => {
@@ -78,7 +82,7 @@ describe('Model Context Protocol (MCP) Server', () => {
     expect(content).not.toContain('## Packed Files');
   });
 
-  it('calls pack_context tool', async () => {
+  it('calls pack_context tool with maxTokens', async () => {
     const targetFile = path.resolve(sampleAppDir, 'src/index.ts');
     const res = await server.handleMessage({
       jsonrpc: '2.0',
@@ -89,6 +93,7 @@ describe('Model Context Protocol (MCP) Server', () => {
         arguments: {
           targets: [targetFile],
           depth: 1,
+          maxTokens: 50,
         },
       },
     });
@@ -99,10 +104,72 @@ describe('Model Context Protocol (MCP) Server', () => {
     expect(content).toContain('### File:');
   });
 
-  it('returns error for unknown tool call', async () => {
+  it('calls pack_git_diff tool on clean working tree', async () => {
     const res = await server.handleMessage({
       jsonrpc: '2.0',
       id: 6,
+      method: 'tools/call',
+      params: {
+        name: 'pack_git_diff',
+        arguments: {
+          stagedOnly: false,
+          depth: 1,
+          cwd: path.resolve(__dirname, '..'),
+        },
+      },
+    });
+
+    expect(res?.id).toBe(6);
+    expect(res?.error).toBeUndefined();
+    const content = (res?.result as any).content[0].text;
+    expect(content).toContain('SMART CONTEXT PACKER');
+  });
+
+  it('calls pack_git_diff tool on modified git working tree in isolated repo', async () => {
+    const tempDir = path.join(os.tmpdir(), `scp_mcp_git_${Date.now()}`);
+    fs.mkdirSync(tempDir, { recursive: true });
+
+    try {
+      child_process.execSync('git init', { cwd: tempDir, stdio: 'ignore' });
+      child_process.execSync('git config user.name "Test"', { cwd: tempDir, stdio: 'ignore' });
+      child_process.execSync('git config user.email "test@example.com"', { cwd: tempDir, stdio: 'ignore' });
+
+      const fileA = path.join(tempDir, 'a.ts');
+      fs.writeFileSync(fileA, 'export const a = 1;', 'utf-8');
+      child_process.execSync('git add a.ts && git commit -m "init"', { cwd: tempDir, stdio: 'ignore' });
+
+      // Modify a.ts
+      fs.writeFileSync(fileA, 'export const a = 2;\nexport const b = 3;', 'utf-8');
+
+      const res = await server.handleMessage({
+        jsonrpc: '2.0',
+        id: 7,
+        method: 'tools/call',
+        params: {
+          name: 'pack_git_diff',
+          arguments: {
+            stagedOnly: false,
+            depth: 1,
+            cwd: tempDir,
+          },
+        },
+      });
+
+      expect(res?.id).toBe(7);
+      expect(res?.error).toBeUndefined();
+      const content = (res?.result as any).content[0].text;
+      expect(content).toContain('SMART CONTEXT PACKER: AI DIRECTIVE');
+      expect(content).toContain('## Git Diff Patch');
+      expect(content).toContain('+export const a = 2;');
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('returns error for unknown tool call', async () => {
+    const res = await server.handleMessage({
+      jsonrpc: '2.0',
+      id: 8,
       method: 'tools/call',
       params: {
         name: 'unknown_tool',
@@ -110,7 +177,7 @@ describe('Model Context Protocol (MCP) Server', () => {
       },
     });
 
-    expect(res?.id).toBe(6);
+    expect(res?.id).toBe(8);
     expect(res?.error).toBeDefined();
     expect(res?.error?.code).toBe(-32601);
   });

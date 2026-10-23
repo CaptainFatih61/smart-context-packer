@@ -22,12 +22,14 @@ describe('CLI Execution (dist/cli.js)', () => {
     expect(stdout).toContain('--copy');
     expect(stdout).toContain('--diff');
     expect(stdout).toContain('--mcp');
+    expect(stdout).toContain('--max-tokens');
+    expect(stdout).toContain('--init-agent');
     expect(stdout).toContain('--init-vscode');
   });
 
   it('outputs current version with --version', async () => {
     const { stdout } = await exec(`node "${cliPath}" --version`);
-    expect(stdout).toContain('1.2.0');
+    expect(stdout).toContain('1.3.0');
   });
 
   it('generates prompt to stdout using --stdout flag', async () => {
@@ -39,6 +41,16 @@ describe('CLI Execution (dist/cli.js)', () => {
     expect(stdout).toContain('SMART CONTEXT PACKER: AI DIRECTIVE');
     expect(stdout).toContain('### File: `src/index.ts` (TARGET)');
     expect(stdout).toContain('### File: `src/utils/helpers.ts` (DEP: depth 1)');
+  });
+
+  it('respects --max-tokens flag with auto-skeletonization', async () => {
+    const { stdout } = await exec(
+      `node "${cliPath}" src/index.ts --stdout -d 1 --max-tokens 50`,
+      { cwd: sampleAppDir }
+    );
+
+    expect(stdout).toContain('SMART CONTEXT PACKER: AI DIRECTIVE');
+    expect(stdout).toContain('### File: `src/index.ts` (TARGET)');
   });
 
   it('outputs tree-only prompt when requested', async () => {
@@ -61,6 +73,20 @@ describe('CLI Execution (dist/cli.js)', () => {
     expect(stdout).toContain('<?xml version="1.0" encoding="UTF-8"?>');
     expect(stdout).toContain('<context_pack generator="smart-context-packer">');
     expect(stdout).toContain('<file path="src/index.ts" type="target"');
+  });
+
+  it('initializes agent rules using --init-agent flag', async () => {
+    const tempDir = path.join(os.tmpdir(), `scp_cli_agent_${Date.now()}`);
+    fs.mkdirSync(tempDir, { recursive: true });
+
+    try {
+      const { stdout } = await exec(`node "${cliPath}" --init-agent`, { cwd: tempDir });
+      expect(stdout).toContain('Agent Rules Initialized Successfully');
+      expect(fs.existsSync(path.join(tempDir, '.agent/rules/smart-context-packer.md'))).toBe(true);
+      expect(fs.existsSync(path.join(tempDir, '.cursorrules'))).toBe(true);
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 
   it('initializes VS Code tasks using --init-vscode flag', async () => {

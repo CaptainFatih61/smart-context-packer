@@ -17,6 +17,7 @@ export * from './git.js';
 export * from './prisma.js';
 export * from './mcp.js';
 export * from './ide.js';
+export * from './agent-rules.js';
 
 /**
  * Main programmatic API to pack dependencies and generate AI context prompts.
@@ -53,13 +54,14 @@ export async function packContext(options: PackOptions): Promise<PackResult> {
     ignorePatterns: options.ignorePatterns,
     diff: options.diff,
     staged: options.staged,
+    maxTokens: options.maxTokens,
   });
 
   const graph = await analyzer.analyze(targets);
   if (gitDiffPatch) {
     graph.gitDiffPatch = gitDiffPatch;
   }
-  const stats = aggregateTokenStats(graph);
+  const stats = aggregateTokenStats(graph, options.maxTokens);
 
   const formatter = new ContextFormatter({
     format: options.format || 'md',

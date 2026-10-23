@@ -1,6 +1,59 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import readline from 'node:readline';
 import { packContext } from './index.js';
+import { getGitModifiedFiles } from './git.js';
 import type { OutputFormat } from './types.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+/**
+ * Resolves the effective workspace root directory for MCP tool calls.
+ */
+export function resolveEffectiveCwd(targets: string[], requestedCwd?: string): string {
+  if (requestedCwd && fs.existsSync(requestedCwd)) {
+    return path.resolve(requestedCwd);
+  }
+
+  // 1. If any target is an absolute path, find the nearest project root
+  for (const t of targets) {
+    if (path.isAbsolute(t) && fs.existsSync(t)) {
+      let cur = fs.statSync(t).isDirectory() ? t : path.dirname(t);
+      while (cur && cur !== path.dirname(cur)) {
+        if (fs.existsSync(path.join(cur, 'package.json')) || fs.existsSync(path.join(cur, '.git'))) {
+          return cur;
+        }
+        cur = path.dirname(cur);
+      }
+      return path.dirname(t);
+    }
+  }
+
+  // 2. Check if targets exist relative to process.cwd()
+  if (targets.length > 0 && targets.some((t) => fs.existsSync(path.resolve(process.cwd(), t)))) {
+    return process.cwd();
+  }
+
+  // 3. If process.cwd() is inside a git repo or project root, use process.cwd()
+  if (fs.existsSync(path.join(process.cwd(), '.git')) || fs.existsSync(path.join(process.cwd(), 'package.json'))) {
+    return process.cwd();
+  }
+
+  // 4. Fallback: check if targets exist relative to package root (parent of dist/src)
+  const pkgRoot = path.resolve(__dirname, '..');
+  if (targets.some((t) => fs.existsSync(path.resolve(pkgRoot, t)))) {
+    return pkgRoot;
+  }
+
+  // 5. Fallback: if pkgRoot is git repo or has package.json
+  if (fs.existsSync(path.join(pkgRoot, '.git')) || fs.existsSync(path.join(pkgRoot, 'package.json'))) {
+    return pkgRoot;
+  }
+
+  return process.cwd();
+}
 
 export interface JsonRpcRequest {
   jsonrpc: '2.0';
@@ -41,6 +94,10 @@ export const MCP_TOOLS = [
           type: 'boolean',
           description: 'Strip function/class bodies of dependencies to save tokens',
         },
+        maxTokens: {
+          type: 'number',
+          description: 'Maximum token budget; automatically skeletonizes deep dependencies to fit',
+        },
         includeDiff: {
           type: 'boolean',
           description: 'Include uncommitted Git working tree diff',
@@ -49,6 +106,10 @@ export const MCP_TOOLS = [
           type: 'string',
           enum: ['md', 'xml'],
           description: 'Output prompt format: md (Markdown) or xml',
+        },
+        cwd: {
+          type: 'string',
+          description: 'Workspace root directory (defaults to current project root)',
         },
       },
       required: ['targets'],
@@ -70,8 +131,47 @@ export const MCP_TOOLS = [
           type: 'boolean',
           description: 'Discover files in workspace that import the targets',
         },
+        cwd: {
+          type: 'string',
+          description: 'Workspace root directory (defaults to current project root)',
+        },
       },
       required: ['targets'],
+    },
+  },
+  {
+    name: 'pack_git_diff',
+    description:
+      'Pack uncommitted Git changes (working tree or staged) along with their local dependency graph and diff patch into an AI-directive prompt',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        stagedOnly: {
+          type: 'boolean',
+          description: 'Package only staged git changes instead of all uncommitted modifications (default: false)',
+        },
+        depth: {
+          type: 'number',
+          description: 'Dependency traversal depth (default: 2, 0 for target modified files only)',
+        },
+        skeleton: {
+          type: 'boolean',
+          description: 'Strip function/class bodies of dependencies to save tokens',
+        },
+        maxTokens: {
+          type: 'number',
+          description: 'Maximum token budget; automatically skeletonizes deep dependencies to fit',
+        },
+        format: {
+          type: 'string',
+          enum: ['md', 'xml'],
+          description: 'Output prompt format: md (Markdown) or xml',
+        },
+        cwd: {
+          type: 'string',
+          description: 'Workspace root directory (defaults to current project root)',
+        },
+      },
     },
   },
 ];
@@ -112,7 +212,7 @@ export class McpServer {
               },
               serverInfo: {
                 name: 'smart-context-packer',
-                version: '1.2.0',
+                version: '1.3.0',
               },
             },
           };
@@ -148,13 +248,17 @@ export class McpServer {
             const targets = (args.targets as string[]) || [];
             const depth = typeof args.depth === 'number' ? args.depth : 2;
             const skeleton = Boolean(args.skeleton);
+            const maxTokens = typeof args.maxTokens === 'number' ? args.maxTokens : undefined;
             const includeDiff = Boolean(args.includeDiff);
             const format: OutputFormat = args.format === 'xml' ? 'xml' : 'md';
+            const effectiveCwd = resolveEffectiveCwd(targets, args.cwd as string | undefined);
 
             const packResult = await packContext({
+              cwd: effectiveCwd,
               targets,
               depth,
               skeleton,
+              maxTokens,
               diff: includeDiff,
               format,
               quiet: true,
@@ -177,11 +281,65 @@ export class McpServer {
           if (toolName === 'inspect_dependency_graph') {
             const targets = (args.targets as string[]) || [];
             const reverse = Boolean(args.reverse);
+            const effectiveCwd = resolveEffectiveCwd(targets, args.cwd as string | undefined);
 
             const packResult = await packContext({
+              cwd: effectiveCwd,
               targets,
               reverse,
               treeOnly: true,
+              quiet: true,
+            });
+
+            return {
+              jsonrpc: '2.0',
+              id,
+              result: {
+                content: [
+                  {
+                    type: 'text',
+                    text: packResult.formattedPrompt,
+                  },
+                ],
+              },
+            };
+          }
+
+          if (toolName === 'pack_git_diff') {
+            const stagedOnly = Boolean(args.stagedOnly);
+            const depth = typeof args.depth === 'number' ? args.depth : 2;
+            const skeleton = Boolean(args.skeleton);
+            const maxTokens = typeof args.maxTokens === 'number' ? args.maxTokens : undefined;
+            const format: OutputFormat = args.format === 'xml' ? 'xml' : 'md';
+            const effectiveCwd = resolveEffectiveCwd([], args.cwd as string | undefined);
+
+            const modifiedFiles = getGitModifiedFiles(effectiveCwd, stagedOnly);
+            if (modifiedFiles.length === 0) {
+              return {
+                jsonrpc: '2.0',
+                id,
+                result: {
+                  content: [
+                    {
+                      type: 'text',
+                      text: `<!-- SMART CONTEXT PACKER: AI DIRECTIVE -->\n\nNo ${
+                        stagedOnly ? 'staged' : 'uncommitted modified or untracked'
+                      } Git files were detected in workspace: ${effectiveCwd}.\nWorking tree is clean.`,
+                    },
+                  ],
+                },
+              };
+            }
+
+            const packResult = await packContext({
+              cwd: effectiveCwd,
+              targets: modifiedFiles,
+              depth,
+              skeleton,
+              maxTokens,
+              diff: !stagedOnly,
+              staged: stagedOnly,
+              format,
               quiet: true,
             });
 

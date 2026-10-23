@@ -1,5 +1,7 @@
+import path from 'node:path';
 import pc from 'picocolors';
 import type { FileStats, TokenStats, DependencyGraph } from './types.js';
+import { extractSkeleton } from './filter.js';
 
 export const CONTEXT_WINDOW_128K = 131072;
 export const CONTEXT_WINDOW_200K = 204800;
@@ -50,17 +52,69 @@ export function calculateFileStats(content: string): FileStats {
 
 /**
  * Aggregates statistics across all nodes in the dependency graph.
+ * When maxTokens is provided, auto-skeletonizes deeper dependencies to fit within budget.
  */
-export function aggregateTokenStats(graph: DependencyGraph): TokenStats {
+export function aggregateTokenStats(graph: DependencyGraph, maxTokens?: number): TokenStats {
   let totalTokens = 0;
   let totalLines = 0;
   let totalChars = 0;
-  const fileBreakdown: TokenStats['fileBreakdown'] = [];
 
-  for (const [filePath, node] of graph.nodes) {
+  for (const [, node] of graph.nodes) {
     totalTokens += node.stats.estimatedTokens;
     totalLines += node.stats.lines;
     totalChars += node.stats.characters;
+  }
+
+  let budgetOptimized = false;
+  let tokensSavedByBudget = 0;
+
+  // If over budget, auto-skeletonize dependencies starting from deepest files down to depth 1
+  if (maxTokens !== undefined && maxTokens > 0 && totalTokens > maxTokens) {
+    const initialTokens = totalTokens;
+
+    // Collect candidate dependency nodes (depth > 0, not target, not yet skeleton)
+    const candidates = Array.from(graph.nodes.values()).filter(
+      (n) => n.type !== 'target' && n.depth > 0 && !n.isSkeleton
+    );
+
+    // Sort: deepest dependencies first; then largest tokens first
+    candidates.sort((a, b) => {
+      if (b.depth !== a.depth) return b.depth - a.depth;
+      return b.stats.estimatedTokens - a.stats.estimatedTokens;
+    });
+
+    let convertedAny = false;
+    for (const node of candidates) {
+      const ext = path.extname(node.filePath);
+      const skeletonContent = extractSkeleton(node.content, ext);
+      const newStats = calculateFileStats(skeletonContent);
+
+      const tokenDiff = node.stats.estimatedTokens - newStats.estimatedTokens;
+      const lineDiff = node.stats.lines - newStats.lines;
+      const charDiff = node.stats.characters - newStats.characters;
+
+      node.content = skeletonContent;
+      node.isSkeleton = true;
+      node.stats = newStats;
+      convertedAny = true;
+
+      totalTokens -= tokenDiff;
+      totalLines -= lineDiff;
+      totalChars -= charDiff;
+
+      if (totalTokens <= maxTokens) {
+        break;
+      }
+    }
+
+    if (convertedAny) {
+      budgetOptimized = true;
+      tokensSavedByBudget = Math.max(0, initialTokens - totalTokens);
+    }
+  }
+
+  const fileBreakdown: TokenStats['fileBreakdown'] = [];
+  for (const [filePath, node] of graph.nodes) {
     fileBreakdown.push({
       filePath,
       tokens: node.stats.estimatedTokens,
@@ -78,6 +132,8 @@ export function aggregateTokenStats(graph: DependencyGraph): TokenStats {
     totalChars,
     pct128k,
     pct200k,
+    budgetOptimized,
+    tokensSavedByBudget,
     fileBreakdown,
   };
 }
@@ -113,6 +169,14 @@ export function renderTerminalSummary(
     pc.cyan('│ ') + pad(pc.gray(' • 200k (Claude/Gemini):'), 24) + formatPercentage(stats.pct200k) + '                           '.slice(0, 22 - `${stats.pct200k}%`.length) + pc.cyan('│'),
     pc.cyan('├─────────────────────────────────────────────────────────────┤'),
   ];
+
+  if (stats.budgetOptimized && stats.tokensSavedByBudget) {
+    const budgetMsg = `✔ ${numFmt(stats.tokensSavedByBudget)} tokens saved`;
+    const rightPad = Math.max(1, 37 - budgetMsg.length);
+    lines.push(
+      pc.cyan('│ ') + pad(pc.gray('Budget Optimized:'), 22) + pc.green(budgetMsg) + ' '.repeat(rightPad) + pc.cyan('│')
+    );
+  }
 
   if (destination.file) {
     lines.push(
