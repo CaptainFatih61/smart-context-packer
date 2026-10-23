@@ -1,0 +1,67 @@
+{
+  "name": "smart-context-packer",
+  "version": "1.0.0",
+  "description": "Smart dependency graph analyzer and AI context pack generator for LLM coding assistants",
+  "keywords": [
+    "ai",
+    "context",
+    "prompt-engineering",
+    "llm",
+    "dependency-graph",
+    "token-counter",
+    "typescript",
+    "vue",
+    "lua",
+    "fivem",
+    "cli"
+  ],
+  "author": "Antigravity Team",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    }
+  },
+  "bin": {
+    "smart-context-packer": "./dist/cli.js",
+    "scp": "./dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "prepack": "npm run build"
+  },
+  "dependencies": {
+    "clipboardy": "^4.0.0",
+    "commander": "^12.1.0",
+    "fast-glob": "^3.3.2",
+    "ignore": "^6.0.2",
+    "picocolors": "^1.1.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.9",
+    "tsup": "^8.2.4",
+    "typescript": "^5.5.4",
+    "vitest": "^2.0.5"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
