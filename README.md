@@ -12,9 +12,16 @@
 [![Tested with Vitest](https://img.shields.io/badge/Tested%20with-Vitest-729B1B.svg)](https://vitest.dev/)
 [![OpenAI OSS Grant](https://img.shields.io/badge/OpenAI%20OSS%20Grant-Candidate-412991.svg)](https://openai.com/)
 
+[![npm version](https://img.shields.io/badge/version-1.2.0-blue.svg)](package.json)
+[![MCP: Stdio Protocol](https://img.shields.io/badge/MCP-JSON--RPC%202.0-brightgreen.svg)](https://modelcontextprotocol.io/)
+
 [Quickstart](#-quickstart) •
 [Why SCP?](#-why-smart-context-packer) •
 [Features](#-key-features) •
+[Git Diff Resolver](#-git-diff--working-tree-resolver-v120) •
+[Smart Prisma Extractor](#-smart-prisma-schema-model-extractor-v120) •
+[MCP Stdio Server](#-model-context-protocol-mcp-server-v120) •
+[VS Code Tasks](#-vs-code--ai-ide-tasks-generator-v120) •
 [Benchmarks](#-token-economy-benchmarks) •
 [CLI Usage](#-cli-usage--flags) •
 [Programmatic API](#-programmatic-library-api) •
@@ -45,8 +52,17 @@ No installation required — run instantly with `npx`:
 # Analyze a file, bundle dependencies up to depth 2, and copy to clipboard:
 npx smart-context-packer src/auth/login.ts -c
 
-# Shorthand alias:
+# Shorthand alias with skeleton mode:
 npx scp src/server.ts -d 2 -s -c
+
+# Pack all uncommitted Git changes + dependencies + unified diff patch:
+npx scp --diff -c
+
+# Start zero-dependency Model Context Protocol (MCP) stdio server:
+npx scp --mcp
+
+# Generate VS Code / Cursor Command Palette tasks:
+npx scp --init-vscode
 ```
 
 ### Or install globally / locally:
@@ -149,6 +165,153 @@ src/index.ts -> imports -> ["src/services/auth.ts"]
 src/services/auth.ts -> imports -> ["src/models/user.ts"]
 ```
 
+### 5. 🌿 Git Diff & Working Tree Resolver (`--diff`, `--staged`)
+Resolve uncommitted modified and untracked files as targets, calculate their full dependency graph, and append a unified `## Git Diff Patch` section into the prompt for rapid PR reviews and bugfixes.
+
+### 6. 🗄️ Smart Prisma Schema Model Extractor
+Detects `@prisma/client` and `prisma.<model>` usage, parsing `schema.prisma` and extracting ONLY the models and enums referenced in the packed code (along with 1-level relations) to prevent DB hallucinations without bloating prompts.
+
+### 7. 🔌 Native Model Context Protocol (MCP) Server (`--mcp`)
+Zero-dependency JSON-RPC 2.0 stdio server enabling AI coding agents (Claude Desktop, Cursor, Antigravity, Cline) to pack context and inspect dependency graphs autonomously.
+
+### 8. 💻 VS Code & AI IDE Tasks Generator (`--init-vscode`)
+One-command setup of `.vscode/tasks.json` with three Command Palette tasks for instant clipboard copying of active file context, skeleton signatures, or git diffs.
+
+---
+
+## 🌿 Git Diff & Working Tree Resolver (v1.2.0)
+
+When you are fixing a bug or building a feature, you usually want the AI to understand what you've modified and how those changes impact adjacent modules.
+
+Using `--diff` or `--staged`:
+1. `scp` automatically runs `git diff --name-only` and `git status --porcelain` to identify changed, added, or untracked files.
+2. It feeds those files as root targets into the `DependencyGraph` engine, automatically bundling all imported modules and type definitions.
+3. It appends a clean unified patch block under `## Git Diff Patch`:
+
+```markdown
+## Git Diff Patch
+
+```diff
+diff --git a/src/auth/service.ts b/src/auth/service.ts
+--- a/src/auth/service.ts
++++ b/src/auth/service.ts
+@@ -12,4 +12,6 @@
++export function verifySessionToken(token: string): boolean {
++  return token.startsWith("sess_");
++}
+```
+```
+
+### Usage Examples:
+```bash
+# Pack all uncommitted working tree changes + dependencies + unified diff:
+scp --diff -c
+
+# Pack staged changes only:
+scp --staged -c
+
+# Combine specific entry files with git diff:
+scp src/index.ts --diff -c
+```
+
+---
+
+## 🗄️ Smart Prisma Schema Model Extractor (v1.2.0)
+
+In enterprise TypeScript projects using Prisma, `prisma/schema.prisma` can easily exceed 2,000 lines of database models. Dumping the entire schema wastes thousands of tokens on irrelevant tables.
+
+`smart-context-packer` introduces **Zero-Hallucination Prisma Extraction**:
+1. It automatically inspects every packed file for imports of `@prisma/client` or references like `prisma.user.findMany` or `db.order.create`.
+2. It locates `prisma/schema.prisma` (or `./schema.prisma`) in the workspace.
+3. It parses all `model <Name> { ... }` and `enum <Name> { ... }` blocks.
+4. It extracts **ONLY the referenced models/enums**, plus their direct **1-level relational models** (e.g., if `User` references `Post` and `Profile`, those models are also included).
+5. It injects a clean virtual file block into the prompt:
+
+```prisma
+// prisma/schema.prisma [Extracted Models]
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  role      Role     @default(USER)
+  posts     Post[]
+}
+
+model Post {
+  id        String   @id @default(cuid())
+  title     String
+  authorId  String
+  author    User     @relation(fields: [authorId], references: [id])
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+```
+
+---
+
+## 🔌 Model Context Protocol (MCP) Server (v1.2.0)
+
+`smart-context-packer` includes a built-in, zero-dependency **JSON-RPC 2.0 Model Context Protocol (MCP)** server running over `stdio`. AI IDEs and autonomous coding agents can invoke `scp` as a native tool without any external wrappers.
+
+Launch manually:
+```bash
+scp --mcp
+```
+
+### AI Client Configuration
+
+#### Claude Desktop (`claude_desktop_config.json`)
+```json
+{
+  "mcpServers": {
+    "smart-context-packer": {
+      "command": "npx",
+      "args": ["-y", "smart-context-packer", "--mcp"]
+    }
+  }
+}
+```
+
+#### Cursor (`.cursor/mcp.json`) / Antigravity (`mcp_config.json`) / Cline / Windsurf
+```json
+{
+  "mcpServers": {
+    "smart-context-packer": {
+      "command": "npx",
+      "args": ["-y", "smart-context-packer", "--mcp"]
+    }
+  }
+}
+```
+
+### Exposed MCP Tools
+
+| Tool | Parameters | Description |
+|:---|:---|:---|
+| `pack_context` | `targets: string[]`<br>`depth?: number`<br>`skeleton?: boolean`<br>`includeDiff?: boolean` | Analyzes dependencies, redacts secrets, extracts Prisma models, and returns the formatted AI prompt pack. |
+| `inspect_dependency_graph` | `targets: string[]`<br>`reverse?: boolean` | Analyzes module imports/exports and returns an ASCII hierarchy tree and dependency map without source code. |
+
+---
+
+## 💻 VS Code & AI IDE Tasks Generator (v1.2.0)
+
+Integrate `scp` directly into your daily IDE workflow with zero manual JSON writing:
+
+```bash
+scp --init-vscode
+```
+
+This creates or safely merges into `.vscode/tasks.json` with three ready-to-run tasks. Open the Command Palette (`Ctrl+Shift+P` on Windows/Linux, `Cmd+Shift+P` on macOS) and run `Tasks: Run Task`:
+
+1. **`SCP: Pack Active File + Dependencies (Copy to Clipboard)`**
+   Runs `npx scp ${relativeFile} --copy` on whichever file tab is currently active.
+2. **`SCP: Pack Active File (Skeleton Mode -> Clipboard)`**
+   Runs `npx scp ${relativeFile} --skeleton --copy` for ultra-compact signature-only packing.
+3. **`SCP: Pack Git Diff + Dependencies (Copy to Clipboard)`**
+   Runs `npx scp --diff --copy` to bundle all current unstaged/uncommitted changes and copy to clipboard.
+
 ---
 
 ## 📈 Token Economy Benchmarks
@@ -165,13 +328,19 @@ src/services/auth.ts -> imports -> ["src/models/user.ts"]
 ## 🛠️ CLI Usage & Flags
 
 ```bash
-scp [options] <targets...>
+scp [options] [targets...]
 ```
+
+> **Note:** `targets` are optional when using `--diff`, `--staged`, `--mcp`, or `--init-vscode`.
 
 ### Options Reference
 
 | Flag | Shorthand | Description | Default |
 |:---|:---:|:---|:---:|
+| `--diff` | | Discover all uncommitted modified/untracked files as targets & include diff patch | `false` |
+| `--staged` | | Discover staged files as targets & include staged diff patch | `false` |
+| `--mcp` | | Start native JSON-RPC 2.0 Model Context Protocol (MCP) stdio server | `false` |
+| `--init-vscode` | | Generate or update `.vscode/tasks.json` with ready-to-run IDE tasks | `false` |
 | `--depth <number>` | `-d` | Dependency traversal depth (`0` = target only, `1` = direct, `2` = transitive) | `2` |
 | `--reverse` | `-r` | Discover workspace files that import the target file | `false` |
 | `--skeleton` | `-s` | Strip function bodies of dependencies to type signatures | `false` |
@@ -194,13 +363,16 @@ scp src/controllers/auth.ts -c
 # 2. Maximum Token Efficiency: Depth 3 with Skeleton signatures
 scp src/main.ts -d 3 -s -c
 
-# 3. XML Mode for specialized LLMs / Claude artifacts
+# 3. Review uncommitted git changes + dependencies before creating a PR
+scp --diff -c
+
+# 4. XML Mode for specialized LLMs / Claude artifacts
 scp src/index.ts -f xml -o prompt.xml
 
-# 4. Reverse Dependency Analysis: What files will be impacted if I edit utils.ts?
+# 5. Reverse Dependency Analysis: What files will be impacted if I edit utils.ts?
 scp src/utils/formatters.ts --reverse -c
 
-# 5. Pipe directly into another tool or CLI assistant
+# 6. Pipe directly into another tool or CLI assistant
 scp src/server.ts --stdout | claude
 ```
 
@@ -230,11 +402,12 @@ scp resources/[gameplay]/banking/fxmanifest.lua -c
 ```typescript
 import { packContext, analyzeDependencies, formatContext } from 'smart-context-packer';
 
-// 1. One-shot high-level packing
+// 1. One-shot high-level packing (with git diff support)
 const result = await packContext({
   targets: ['src/index.ts'],
   depth: 2,
   skeleton: true,
+  diff: true,
   copy: true,
   output: '.context-pack.md',
 });
@@ -276,9 +449,12 @@ for (const [filePath, node] of graph.nodes) {
 - [x] Automatic credential & secret redaction engine
 - [x] Skeleton signature extraction mode (`--skeleton`)
 - [x] Dual ESM/CJS library distribution with strict TypeScript types
+- [x] Git working tree diff and staged context resolver (`--diff`, `--staged`)
+- [x] Smart Prisma schema model & relation extractor (`prisma/schema.prisma`)
+- [x] Official Model Context Protocol (MCP) server integration (`--mcp`)
+- [x] VS Code Command Palette tasks generator (`--init-vscode`)
 - [ ] Python AST dependency analyzer (`import`, `from ... import`)
 - [ ] Rust module resolver (`mod`, `use crate::*`)
-- [ ] Official Model Context Protocol (MCP) server integration
 - [ ] Interactive VS Code extension with one-click "Pack Context" context menu
 
 ---
