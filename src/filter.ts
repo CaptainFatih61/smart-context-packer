@@ -172,12 +172,53 @@ export function extractSkeleton(content: string, ext: string): string {
     return extractLuaSkeleton(content);
   }
 
-  // TS, JS, TSX, JSX
+  // Python handling
+  if (normalizedExt === '.py') {
+    return extractPythonSkeleton(content);
+  }
+
+  // TS, JS, TSX, JSX, Go (.go), Rust (.rs)
   return extractCodeSkeleton(content);
 }
 
 /**
- * Strips implementation bodies for TS/JS code.
+ * Strips function bodies for Python code while preserving def/class signatures and docstrings.
+ */
+function extractPythonSkeleton(code: string): string {
+  const lines = code.split(/\r?\n/);
+  const result: string[] = [];
+  let inDef = false;
+  let defIndent = 0;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
+    const trimmed = line.trim();
+    const indent = line.search(/\S|$/);
+
+    if (inDef) {
+      if (trimmed.length > 0 && indent <= defIndent) {
+        inDef = false;
+      } else {
+        continue;
+      }
+    }
+
+    if (trimmed.startsWith('def ') || trimmed.startsWith('async def ')) {
+      result.push(line);
+      const indentStr = ' '.repeat(indent + 4);
+      result.push(`${indentStr}pass  # [Implementation omitted for token efficiency]`);
+      inDef = true;
+      defIndent = indent;
+      continue;
+    }
+
+    result.push(line);
+  }
+  return result.join('\n');
+}
+
+/**
+ * Strips implementation bodies for TS/JS, Go, and Rust code.
  */
 function extractCodeSkeleton(code: string): string {
   const lines = code.split(/\r?\n/);
@@ -200,7 +241,9 @@ function extractCodeSkeleton(code: string): string {
       trimmed.startsWith('export type ') ||
       trimmed.startsWith('export interface ') ||
       trimmed.startsWith('type ') ||
-      trimmed.startsWith('interface ')
+      trimmed.startsWith('interface ') ||
+      trimmed.startsWith('use ') ||
+      trimmed.startsWith('mod ')
     ) {
       if (!inFunctionBody) {
         result.push(line);
@@ -208,14 +251,16 @@ function extractCodeSkeleton(code: string): string {
       }
     }
 
-    // Check for start of a function or method body
+    // Check for start of a function or method body across TS/JS, Go, Rust
     const isFunctionHeader =
       /^(?:export\s+)?(?:async\s+)?(?:function\b|const\s+[a-zA-Z0-9_$]+\s*=\s*(?:async\s*)?\([^)]*\)\s*(?::\s*[^=]+)?\s*=>)/.test(
         trimmed
       ) ||
       /^(?:(?:public|private|protected|static|async|override|readonly)\s+)+[a-zA-Z0-9_$]+\s*\([^)]*\)/.test(
         trimmed
-      );
+      ) ||
+      /^(?:func\s+(?:\([^)]+\)\s+)?[a-zA-Z0-9_]+\s*\([^)]*\))/.test(trimmed) || // Go func
+      /^(?:pub(?:\([^)]+\))?\s+)?(?:async\s+)?fn\s+[a-zA-Z0-9_]+/.test(trimmed); // Rust fn
 
     if (!inFunctionBody && isFunctionHeader && line.includes('{')) {
       inFunctionBody = true;

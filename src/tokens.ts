@@ -40,6 +40,8 @@ export function estimateTokensForText(text: string): number {
   return Math.max(1, Math.round(count));
 }
 
+export const estimateTokens = estimateTokensForText;
+
 /**
  * Computes line count, character count, and token estimate for a file's content.
  */

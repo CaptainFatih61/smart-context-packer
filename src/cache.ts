@@ -41,6 +41,30 @@ export function extractExportedSymbols(content: string, ext: string): string[] {
     return Array.from(pySymbols);
   }
 
+  // For Go
+  if (normalizedExt === '.go') {
+    const goSymbols = new Set<string>();
+    // Matches top-level func/type/const/var that start with an uppercase letter
+    const goRegex = /^(?:func\s+(?:\([^)]+\)\s+)?|type\s+|const\s+|var\s+)([A-Z][a-zA-Z0-9_]*)/gm;
+    let match: RegExpExecArray | null;
+    while ((match = goRegex.exec(content)) !== null) {
+      if (match[1]) goSymbols.add(match[1]);
+    }
+    return Array.from(goSymbols);
+  }
+
+  // For Rust
+  if (normalizedExt === '.rs') {
+    const rustSymbols = new Set<string>();
+    // Matches top-level pub fn, pub struct, pub enum, pub trait, pub type, pub const
+    const rustRegex = /^\s*pub(?:\([^)]+\))?\s+(?:async\s+)?(?:fn|struct|enum|trait|type|const)\s+([a-zA-Z0-9_]+)/gm;
+    let match: RegExpExecArray | null;
+    while ((match = rustRegex.exec(content)) !== null) {
+      if (match[1]) rustSymbols.add(match[1]);
+    }
+    return Array.from(rustSymbols);
+  }
+
   // For TS / JS / Vue
   const symbols = new Set<string>();
   const lines = content.split(/\r?\n/);

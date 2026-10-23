@@ -8,6 +8,11 @@ import { ContextFormatter } from './formatter.js';
 import { getGitModifiedFiles, getGitDiffPatch } from './git.js';
 import { calculateBlastRadius } from './blast-radius.js';
 import { ProjectMemoryManager } from './memory.js';
+import { AstCache } from './cache.js';
+import { BM25CodeSearch } from './query.js';
+import { generateRepoMap } from './repo-map.js';
+import { writeVisualizerReport } from './visualizer.js';
+import fg from 'fast-glob';
 
 export * from './types.js';
 export * from './analyzer.js';
@@ -22,6 +27,10 @@ export * from './agent-rules.js';
 export * from './cache.js';
 export * from './blast-radius.js';
 export * from './memory.js';
+export type { RedactedFinding, RedactResult } from './redactor.js';
+export * from './query.js';
+export { calculatePageRank, generateRepoMap } from './repo-map.js';
+export * from './visualizer.js';
 
 /**
  * Main programmatic API to pack dependencies and generate AI context prompts.
@@ -31,6 +40,29 @@ export async function packContext(options: PackOptions): Promise<PackResult> {
 
   let targets = options.targets ? [...options.targets] : [];
   let gitDiffPatch = options.gitDiffPatch;
+
+  // Resolve targets from query if specified
+  if (options.query && targets.length === 0) {
+    const candidateFiles = fg.sync(['**/*.{ts,tsx,js,jsx,vue,go,rs,py,lua}'], {
+      cwd,
+      ignore: ['node_modules/**', 'dist/**', '.git/**', 'coverage/**'],
+      absolute: false,
+    });
+    const searcher = new BM25CodeSearch();
+    for (const file of candidateFiles) {
+      try {
+        const fullPath = path.resolve(cwd, file);
+        const content = fs.readFileSync(fullPath, 'utf-8');
+        const ext = path.extname(file);
+        const symbols = AstCache.extractExportedSymbols(content, ext);
+        searcher.addDocument({ path: file, symbols, content: content.slice(0, 1000) });
+      } catch {
+        // ignore unreadable files
+      }
+    }
+    const searchResults = searcher.search(options.query, 5);
+    targets = searchResults.map((r) => r.path);
+  }
 
   if (options.diff || options.staged) {
     const gitFiles = getGitModifiedFiles(cwd, Boolean(options.staged));
@@ -45,7 +77,7 @@ export async function packContext(options: PackOptions): Promise<PackResult> {
   }
 
   if (targets.length === 0) {
-    throw new Error('No target files specified and no modified Git files detected.');
+    throw new Error('No target files specified and no matching query or modified Git files detected.');
   }
 
   const analyzer = new DependencyAnalyzer({
@@ -82,6 +114,24 @@ export async function packContext(options: PackOptions): Promise<PackResult> {
     }
   }
 
+  // Generate architectural repo-map if requested
+  let repoMapResult: any;
+  if (options.repoMap) {
+    const maxMapTokens = typeof options.repoMap === 'number' ? options.repoMap : 1024;
+    repoMapResult = generateRepoMap(graph, { maxTokens: maxMapTokens });
+    (graph as any).repoMapText = repoMapResult.mapText;
+  }
+
+  // Generate interactive HTML visualizer if requested
+  let visualizerPath: string | undefined;
+  if (options.visualize) {
+    const customOut = typeof options.visualize === 'string' ? options.visualize : undefined;
+    visualizerPath = writeVisualizerReport(graph, {
+      outputPath: customOut,
+      blastRadius: graph.blastRadius,
+    });
+  }
+
   const stats = aggregateTokenStats(graph, options.maxTokens);
 
   const formatter = new ContextFormatter({
@@ -89,6 +139,8 @@ export async function packContext(options: PackOptions): Promise<PackResult> {
     treeOnly: options.treeOnly || false,
     includeStatsSummary: options.includeStatsSummary !== false,
     gitDiffPatch,
+    repoMapText: repoMapResult?.mapText,
+    redact: options.redact !== false,
   });
 
   const formattedPrompt = formatter.format(graph, stats);
@@ -124,6 +176,8 @@ export async function packContext(options: PackOptions): Promise<PackResult> {
     gitDiffPatch,
     blastRadius: graph.blastRadius,
     memories: graph.memories,
+    repoMap: repoMapResult,
+    visualizerPath,
     cacheStats: analyzer.getCacheStats(),
   };
 }

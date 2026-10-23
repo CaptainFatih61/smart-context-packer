@@ -146,7 +146,14 @@ export class ContextFormatter {
       sections.push('');
     }
 
-    // 8. File Contents (unless treeOnly)
+    // 8. Architectural Repo-Map (if present)
+    const repoMapText = (graph as any).repoMapText || this.options.repoMapText;
+    if (repoMapText) {
+      sections.push(repoMapText);
+      sections.push('');
+    }
+
+    // 9. File Contents (unless treeOnly)
     if (!this.options.treeOnly) {
       sections.push('## Packed Files');
       sections.push('');
@@ -238,6 +245,13 @@ export class ContextFormatter {
         );
       }
       xml.push('  </project_memory>');
+    }
+
+    const repoMapText = (graph as any).repoMapText || this.options.repoMapText;
+    if (repoMapText) {
+      xml.push('  <repo_map>');
+      xml.push(`<![CDATA[\n${repoMapText}\n]]>`);
+      xml.push('  </repo_map>');
     }
 
     if (!this.options.treeOnly) {

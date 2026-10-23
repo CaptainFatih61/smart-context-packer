@@ -12,19 +12,19 @@
 [![Tested with Vitest](https://img.shields.io/badge/Tested%20with-Vitest-729B1B.svg)](https://vitest.dev/)
 [![OpenAI OSS Grant](https://img.shields.io/badge/OpenAI%20OSS%20Grant-Candidate-412991.svg)](https://openai.com/)
 
-[![npm version](https://img.shields.io/badge/version-2.0.0-blue.svg)](package.json)
+[![npm version](https://img.shields.io/badge/version-2.1.0-blue.svg)](package.json)
 [![MCP: Stdio Protocol](https://img.shields.io/badge/MCP-JSON--RPC%202.0-brightgreen.svg)](https://modelcontextprotocol.io/)
 
 [Quickstart](#-quickstart) •
 [Features](#-key-features) •
-[OSS Architecture Comparison](#-how-scp-v20-compares-to-the-best-oss-tools) •
-[Blast-Radius Analysis](#-blast-radius--impacted-test-analyzer-v200) •
-[Incremental AST Cache](#-incremental-sha-256-ast-cache-v200) •
-[Persistent Project Memory](#-file-linked-persistent-project-memory-v200) •
-[3-Layer Progressive MCP](#-3-layer-progressive-disclosure-mcp-engine-v200) •
-[Token Budget Optimizer](#-auto-token-budget-optimizer-v130) •
+[PageRank Repo-Map](#-pagerank-architectural-repo-map-v210) •
+[BM25 Intent Search](#-in-memory-bm25-semantic-intent-routing-v210) •
+[Canvas Visualizer](#-interactive-canvas-dependency-visualizer-v210) •
+[Secret Redactor](#-built-in-enterprise-secret--credential-redactor-v210) •
+[Polyglot Support](#-polyglot-ast-support-ts-js-python-go-rust-vue-lua-prisma) •
+[OSS Comparison](#-how-scp-v21-compares-to-the-best-oss-tools) •
 [CLI Usage](#-cli-usage--flags) •
-[Programmatic API](#-programmatic-library-api)
+[MCP Suite](#-model-context-protocol-mcp-server-v210)
 
 ---
 
@@ -37,25 +37,29 @@ When developing with AI assistants (ChatGPT, Claude, Gemini, Cursor, Copilot), d
 1. **The "Full Repository Dump" Trap:** Tools dump the entire codebase into a 90k+ token mega-prompt. The AI loses focus on the real task, exceeds context budgets, racks up enormous API bills, and gets confused by irrelevant boilerplate.
 2. **The "Isolated File" Trap:** The developer copies a single file. The AI immediately hallucinates missing function implementations, invents nonexistent interfaces, and generates code that breaks workspace imports.
 
-### The Solution: `smart-context-packer` (`scp` v2.0)
+### The Solution: `smart-context-packer` (`scp` v2.1)
 
 `scp` takes your target entry file(s), analyzes their directed dependency graph (imports, requires, tsconfig aliases, and framework script manifests), redacts sensitive credentials, and packages **ONLY the target files and their direct/transitive local dependencies** into a clean, token-counted prompt equipped with an AI pre-flight directive header.
 
-In **v2.0**, `smart-context-packer` synthesizes the architectural breakthroughs of top developer tools (`code-review-graph`, `claude-mem`, `mem0`, and `get-shit-done`) into a single, zero-bloat TypeScript engine with **zero heavy runtime dependencies** (no Python, no Bun, no ChromaDB, no SQLite).
+In **v2.1**, `smart-context-packer` brings **PageRank repo-mapping**, **BM25 semantic intent routing**, **standalone offline HTML canvas graph visualization**, **enterprise secret redaction**, and **polyglot Go/Rust/Python support** — all with **zero external binary dependencies** (no Python, no Bun, no ChromaDB, no SQLite).
 
 ---
 
-## 🏆 How `scp v2.0` Compares to the Best OSS Tools
+## 🏆 How `scp v2.1` Compares to the Best OSS Tools
 
-| Capability / Architecture | `code-review-graph` | `claude-mem` | `mem0` | `get-shit-done` | **`smart-context-packer` v2.0** |
+| Capability / Architecture | `code-review-graph` | `claude-mem` | `mem0` | `get-shit-done` | **`smart-context-packer` v2.1** |
 | :--- | :---: | :---: | :---: | :---: | :---: |
+| **PageRank Architectural Repo-Map** | ❌ | ❌ | ❌ | ❌ | **✅ (Centrality scored ~500-1024 token bird's-eye map)** |
+| **In-Memory BM25 Semantic Intent Routing** | ❌ | ❌ | ❌ | ❌ | **✅ (CamelCase & symbol boosted intent query `-i`)** |
+| **Interactive Offline Canvas Visualizer** | ❌ | ❌ | ❌ | ❌ | **✅ (Self-contained HTML force graph + risk heatmap)** |
+| **Built-in Secret & Credential Redactor** | ❌ | ❌ | ❌ | ❌ | **✅ (AWS, GitHub, Stripe, OpenAI, JWT, DB URLs)** |
 | **Incremental SHA-256 AST Caching** | ✅ | ❌ | ❌ | ❌ | **✅ (`.scp/cache.json`, sub-millisecond)** |
 | **Blast-Radius & Test Impact Risk Scoring** | ✅ | ❌ | ❌ | ❌ | **✅ (Reverse graph + test map + 0-10 risk score)** |
-| **3-Layer Progressive MCP Disclosure** | ❌ | ✅ | ❌ | ❌ | **✅ (L1: Index ~50t → L2: Graph → L3: Pack)** |
+| **3-Layer Progressive MCP Disclosure** | ❌ | ✅ | ❌ | ❌ | **✅ (L1: Index ~50t → L2: Graph → L3: Pack, 9 tools)** |
 | **File-Linked Persistent Project Memory** | ❌ | ❌ | ✅ | ❌ | **✅ (Git-friendly `.scp/memory.json`)** |
 | **Context-Rot Prevention (Task Slicing)** | ❌ | ❌ | ❌ | ✅ | **✅ (Auto-budget optimizer + XML/MD directives)** |
 | **Runtime & Dependency Footprint** | Heavy Python / ChromaDB | Bun / SQLite | Vector DB / Python | Node | **⚡ Pure Node.js / TS (Zero Bloat / Zero C++ DBs)** |
-| **Multi-Language AST (TS/JS/Vue/Lua/Prisma)**| Partial | Partial | None | Markdown | **✅ First-Class Native Support** |
+| **Polyglot AST (TS/JS/Vue/Go/Rust/Python/Lua)** | Partial | Partial | None | Markdown | **✅ First-Class Native Support** |
 
 ---
 
@@ -213,9 +217,118 @@ Store git-friendly architectural decisions, bug gotchas, and invariants linked t
 ### 13. 🌐 3-Layer Progressive Disclosure MCP Suite
 Enables AI coding agents to interact with massive codebases progressively:
 - **Layer 1**: `search_codebase_index` (~50 tokens per file summary with exported symbols)
+- **Layer 1**: `search_codebase_index` (ultra-fast compact symbol/file index ~50t)
 - **Layer 2**: `inspect_dependency_graph` (visual tree, dependency map, circular checks, blast radius)
 - **Layer 3**: `pack_context` & `pack_git_diff` (complete or skeletonized source code + diffs + memories)
+- **Spatial Awareness**: `generate_repo_map` (PageRank architectural bird's-eye map)
+- **Semantic Intent**: `search_codebase_intent` (BM25 intent search with camelCase boosting)
+- **Interactive Visualizer**: `generate_visualizer` (offline HTML force-directed canvas report)
 - **Memory Tools**: `save_project_memory` & `query_project_memory` for persistent cross-session knowledge.
+
+---
+
+## 🗺️ PageRank Architectural Repo-Map (v2.1.0)
+
+When coding in large repositories, LLMs suffer from "tunnel vision" — seeing isolated files without understanding the global architecture. Inspired by Aider's repo-map, `scp` v2.1 implements **Graph PageRank Centrality Ranking** (damping factor 0.85, 20 iterations):
+
+```bash
+# Generate a bird's-eye architectural repo-map (defaults to 1024 token budget):
+scp --repo-map -c
+
+# Pack an entry file along with a 500-token global architectural map:
+scp src/server.ts --repo-map 500 -c
+```
+
+### What It Generates:
+- Traverses the entire codebase dependency graph.
+- Calculates PageRank scores based on in-degree and dependency authority.
+- Extracts exported signatures, interfaces, classes, and types from top architectural hubs.
+- Produces a strictly token-budgeted bird's-eye view injected directly into the prompt:
+
+```markdown
+## 🗺️ Codebase Architectural Repo-Map (PageRank Centrality)
+### `src/server.ts` (Score: 0.1852)
+  - `startServer(port: number): Promise<void>`
+  - `app: Express`
+### `src/auth/service.ts` (Score: 0.1420)
+  - `verifySessionToken(token: string): Promise<User>`
+  - `interface UserSession`
+```
+
+---
+
+## 🔍 In-Memory BM25 Semantic Intent Routing (v2.1.0)
+
+Don't remember the exact path to a file? With `-i, --query`, describe what you want in plain English:
+
+```bash
+# Query by intent: Automatically discovers matching seed files and packs them!
+scp -i "jwt auth token verification" -c
+
+# Pipe intent results into skeleton packing with a token budget:
+scp -i "stripe payment webhook handler" -m 2000 -c
+```
+
+- **Smart Code Tokenizer**: Splits `camelCase`, `PascalCase`, `snake_case`, and kebab identifiers into constituent semantic terms (e.g. `verifySessionToken` -> `verify`, `session`, `token`).
+- **Symbol Boosting**: Exported function/class/interface names receive a 2.5x score multiplier over general file contents.
+- **Pure In-Memory BM25**: Runs in sub-10 milliseconds without external embedding models, Python runtimes, or vector databases.
+
+---
+
+## 🎨 Interactive Canvas Dependency Visualizer (v2.1.0)
+
+Inspect your codebase architecture, dependency clusters, and blast radius visually through a standalone, zero-dependency HTML report:
+
+```bash
+# Generate an interactive HTML report (.scp/visualizer.html) and open it:
+scp src/index.ts --visualize
+
+# Specify custom report output:
+scp --diff --visualize ./reports/diff-impact.html
+```
+
+### Key Visualizer Features:
+- **Zero-Dependency Native HTML5 Canvas**: Embeds physics, styles, and data directly into one file — works completely offline without CDN dependencies.
+- **Physics Force-Directed Simulation**: Real-time interactive node dragging, zooming, and panning.
+- **Dynamic Node Sizing & Heatmap**: Node radius scales by estimated token count. Colors indicate Blast-Radius risk levels (Green = Low, Orange = Medium, Red = High).
+- **Interactive Inspector Sidebar**: Click any node to view incoming/outgoing dependencies, token counts, and full source code.
+
+---
+
+## 🛡️ Built-in Enterprise Secret & Credential Redactor (v2.1.0)
+
+Never accidentally upload production credentials, private keys, or API secrets into an LLM context:
+
+```bash
+# Secret redaction is ENABLED BY DEFAULT across all CLI runs and MCP tools:
+scp src/config.ts -c
+
+# Opt out only if specifically needed:
+scp src/config.ts --no-redact -c
+```
+
+### Detected & Sanitized Secret Patterns:
+- **Private Keys**: RSA, EC, DSA, OpenSSH, and PGP `-----BEGIN PRIVATE KEY-----` blocks.
+- **AWS Credentials**: `AKIA...` Access Key IDs and 40-character secret access keys.
+- **GitHub Tokens**: Personal Access Tokens (`ghp_...`, `github_pat_...`), OAuth keys, and refresh tokens.
+- **Stripe Keys**: Live and test secret keys (`sk_live_...`, `rk_live_...`, `sk_test_...`).
+- **AI Platform Keys**: OpenAI (`sk-proj-...`, `sk-...`), Anthropic (`sk-ant-...`).
+- **Slack Tokens**: Bot, user, and app tokens (`xoxb-...`, `xoxp-...`).
+- **Database Connection URIs**: PostgreSQL, MySQL, MongoDB, Redis URIs with embedded passwords.
+- **Bearer & JWT Tokens**: RFC 7519 3-segment base64url JSON Web Tokens.
+
+---
+
+## 🌐 Polyglot AST Support (TS, JS, Python, Go, Rust, Vue, Lua, Prisma)
+
+`smart-context-packer` v2.1 expands beyond the JavaScript ecosystem into first-class multi-language AST support:
+
+- **Go (`.go`)**: Parses single and multi-line `import (...)` declarations, resolves local package modules via `go.mod`, and extracts function/struct skeletons (`func (s *Server) Start()`).
+- **Rust (`.rs`)**: Resolves module hierarchies (`mod parser;`, `use crate::analyzer::*`), traverses `mod.rs` directories, and extracts `fn` / `pub fn` / `impl` signatures.
+- **Python (`.py`)**: Resolves `import foo` and `from .module import Bar`, searches `__init__.py` packages, and preserves class/def signatures with docstrings in skeleton mode.
+- **Vue 3 SFCs (`.vue`)**: Retains `<script>` and `<script setup>` logic while collapsing bloated templates and style blocks.
+- **Lua & FiveM (`.lua`)**: Resolves `fxmanifest.lua` manifests and Lua `require()` dot notation.
+- **Prisma (`schema.prisma`)**: Intelligently extracts referenced database models and their relational dependencies.
 
 ---
 
@@ -524,6 +637,9 @@ scp [options] [targets...]
 
 | Flag | Shorthand | Description | Default |
 |:---|:---:|:---|:---:|
+| `--query <intent>` | `-i` | In-memory BM25 semantic intent routing to auto-discover seed files | |
+| `--repo-map [tokens]` | | Generate PageRank architectural repo-map (token budget default: 1024) | `false` |
+| `--visualize [path]` | | Generate interactive offline HTML canvas visualizer report | `false` |
 | `--diff` | | Discover all uncommitted modified/untracked files as targets & include diff patch | `false` |
 | `--staged` | | Discover staged files as targets & include staged diff patch | `false` |
 | `--blast-radius` | `-b` | Trace callers, identify unit tests, and compute 0-10 Risk Score | `false` |
@@ -654,8 +770,12 @@ for (const [filePath, node] of graph.nodes) {
 - [x] Blast-radius reverse caller & test impact risk scoring (`src/blast-radius.ts`)
 - [x] File-linked persistent project memory (`src/memory.ts`)
 - [x] 3-Layer progressive disclosure MCP tool suite (`search_codebase_index`, `inspect_dependency_graph`, `pack_context`, `save_project_memory`, `query_project_memory`)
-- [ ] Python AST dependency analyzer (`import`, `from ... import`)
-- [ ] Rust module resolver (`mod`, `use crate::*`)
+- [x] Python AST dependency analyzer (`import`, `from ... import`)
+- [x] Go module and package resolver (`import`, `go.mod`)
+- [x] Rust module and crate resolver (`mod`, `use crate::*`)
+- [x] PageRank architectural repo-map generator (`--repo-map`)
+- [x] In-memory BM25 semantic intent routing (`-i, --query`)
+- [x] Offline zero-dependency HTML canvas visualizer (`--visualize`)
 - [ ] Interactive VS Code extension with one-click "Pack Context" context menu
 
 ---

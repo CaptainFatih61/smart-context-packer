@@ -28,13 +28,16 @@ describe('CLI Execution (dist/cli.js)', () => {
     expect(stdout).toContain('--clear-cache');
     expect(stdout).toContain('--add-memory');
     expect(stdout).toContain('--list-memory');
+    expect(stdout).toContain('--query');
+    expect(stdout).toContain('--repo-map');
+    expect(stdout).toContain('--visualize');
     expect(stdout).toContain('--init-agent');
     expect(stdout).toContain('--init-vscode');
   });
 
   it('outputs current version with --version', async () => {
     const { stdout } = await exec(`node "${cliPath}" --version`);
-    expect(stdout).toContain('2.0.0');
+    expect(stdout).toContain('2.1.0');
   });
 
   it('generates prompt to stdout using --stdout flag', async () => {

@@ -159,9 +159,27 @@ export interface FormatterOptions {
   blastRadius?: BlastRadiusResult;
   /** Optional persistent project memories to inject */
   memories?: MemoryEntry[];
+  /** Optional architectural repo-map text to inject */
+  repoMapText?: string;
+  /** If true, redacts sensitive API keys and tokens (default: true) */
+  redact?: boolean;
 }
 
-export interface PackOptions extends AnalyzerOptions, Omit<FormatterOptions, 'blastRadius' | 'memories'> {
+export interface RepoMapNode {
+  path: string;
+  centralityScore: number;
+  inDegree: number;
+  outDegree: number;
+  exportedSymbols: string[];
+}
+
+export interface RepoMapResult {
+  mapText: string;
+  totalTokens: number;
+  rankedNodes: RepoMapNode[];
+}
+
+export interface PackOptions extends AnalyzerOptions, Omit<FormatterOptions, 'blastRadius' | 'memories' | 'repoMapText'> {
   targets?: string[];
   output?: string;
   copy?: boolean;
@@ -170,6 +188,12 @@ export interface PackOptions extends AnalyzerOptions, Omit<FormatterOptions, 'bl
   blastRadius?: boolean;
   /** If false, disables automatic persistent project memory injection (default: true) */
   includeMemory?: boolean;
+  /** Natural language or keyword intent query to discover seed target files (BM25) */
+  query?: string;
+  /** Generates PageRank architectural repo-map (boolean or max token count, e.g. 1024) */
+  repoMap?: boolean | number;
+  /** Generates interactive HTML canvas visualizer report (boolean or custom output file path) */
+  visualize?: boolean | string;
 }
 
 export interface PackResult {
@@ -181,6 +205,8 @@ export interface PackResult {
   gitDiffPatch?: string;
   blastRadius?: BlastRadiusResult;
   memories?: MemoryEntry[];
+  repoMap?: RepoMapResult;
+  visualizerPath?: string;
   cacheStats?: {
     hits: number;
     misses: number;

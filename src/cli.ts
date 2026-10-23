@@ -17,13 +17,16 @@ program
   .description(
     '📦 smart-context-packer: AI-optimized dependency graph context packer for LLM coding assistants'
   )
-  .version('2.0.0', '-v, --version', 'Output current version')
+  .version('2.1.0', '-v, --version', 'Output current version')
   .argument('[targets...]', 'Target entry file(s) or directories to analyze and pack')
   .option('-d, --depth <number>', 'Dependency traversal depth (default: 2)', '2')
   .option('-r, --reverse', 'Include reverse dependencies (files importing target)', false)
   .option('-s, --skeleton', 'Strip function/class bodies of dependencies to type signatures', false)
   .option('-m, --max-tokens <number>', 'Auto-skeletonize dependencies to fit token budget')
   .option('-b, --blast-radius', 'Perform blast-radius impact analysis and risk scoring', false)
+  .option('-i, --query <intent>', 'Semantic intent or keyword query to discover target files (BM25)')
+  .option('--repo-map [tokens]', 'Generate architectural PageRank repo-map of key hubs')
+  .option('--visualize [path]', 'Generate interactive HTML canvas visualizer report')
   .option('-f, --format <format>', 'Output format: md (Markdown) or xml (XML)', 'md')
   .option('-o, --output <file>', 'Output file path (default: .context-pack.md)', '.context-pack.md')
   .option('-c, --copy', 'Copy packed prompt directly to system clipboard', false)
@@ -135,10 +138,10 @@ program
         return;
       }
 
-      // 6. Validate targets when not in diff/staged mode
+      // 6. Validate targets when not in diff/staged/query mode
       const hasExplicitTargets = Array.isArray(targets) && targets.length > 0;
-      if (!hasExplicitTargets && !options.diff && !options.staged) {
-        console.error(pc.red('Error: Please specify target file(s) or use --diff / --staged to pack modified Git files.'));
+      if (!hasExplicitTargets && !options.diff && !options.staged && !options.query) {
+        console.error(pc.red('Error: Please specify target file(s), query (-i/--query), or use --diff / --staged to pack modified Git files.'));
         console.error(pc.gray('Run "scp --help" for available options.'));
         process.exit(1);
       }
@@ -158,6 +161,21 @@ program
         }
       }
 
+      let repoMapOpt: boolean | number | undefined;
+      if (options.repoMap !== undefined && options.repoMap !== false) {
+        if (typeof options.repoMap === 'string') {
+          const num = parseInt(options.repoMap, 10);
+          repoMapOpt = isNaN(num) ? true : num;
+        } else {
+          repoMapOpt = true;
+        }
+      }
+
+      let visualizeOpt: boolean | string | undefined;
+      if (options.visualize !== undefined && options.visualize !== false) {
+        visualizeOpt = typeof options.visualize === 'string' ? options.visualize : true;
+      }
+
       const format: OutputFormat = options.format.toLowerCase() === 'xml' ? 'xml' : 'md';
       const shouldSaveFile = !options.stdout;
       const outputFile = shouldSaveFile ? options.output : undefined;
@@ -170,6 +188,9 @@ program
         skeleton: options.skeleton,
         maxTokens: parsedMaxTokens,
         blastRadius: options.blastRadius,
+        query: options.query,
+        repoMap: repoMapOpt,
+        visualize: visualizeOpt,
         noCache,
         diff: options.diff,
         staged: options.staged,
@@ -200,6 +221,13 @@ program
             pc.green('✔') +
               pc.white(' Prompt saved to ') +
               pc.cyan(pc.bold(path.resolve(process.cwd(), outputFile)))
+          );
+        }
+        if (result.visualizerPath) {
+          console.log(
+            pc.green('✔') +
+              pc.white(' Interactive Visualizer generated at ') +
+              pc.cyan(pc.bold(result.visualizerPath))
           );
         }
         if (result.copiedToClipboard) {

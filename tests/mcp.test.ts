@@ -28,7 +28,7 @@ describe('Model Context Protocol (MCP) Server', () => {
     expect(res?.id).toBe(1);
     expect(res?.result).toHaveProperty('protocolVersion');
     expect((res?.result as any).serverInfo.name).toBe('smart-context-packer');
-    expect((res?.result as any).serverInfo.version).toBe('2.0.0');
+    expect((res?.result as any).serverInfo.version).toBe('2.1.0');
   });
 
   it('handles ping request', async () => {
@@ -53,7 +53,7 @@ describe('Model Context Protocol (MCP) Server', () => {
     expect(res?.id).toBe(3);
     const tools = (res?.result as any).tools;
     expect(Array.isArray(tools)).toBe(true);
-    expect(tools.length).toBe(6);
+    expect(tools.length).toBe(9);
 
     const names = tools.map((t: any) => t.name);
     expect(names).toContain('search_codebase_index');
@@ -62,6 +62,9 @@ describe('Model Context Protocol (MCP) Server', () => {
     expect(names).toContain('pack_git_diff');
     expect(names).toContain('save_project_memory');
     expect(names).toContain('query_project_memory');
+    expect(names).toContain('generate_repo_map');
+    expect(names).toContain('search_codebase_intent');
+    expect(names).toContain('generate_visualizer');
   });
 
   it('calls inspect_dependency_graph tool', async () => {
@@ -258,10 +261,79 @@ describe('Model Context Protocol (MCP) Server', () => {
     expect(content).toContain('Risk Level');
   });
 
-  it('returns error for unknown tool call', async () => {
+  it('calls generate_repo_map MCP tool', async () => {
     const res = await server.handleMessage({
       jsonrpc: '2.0',
       id: 12,
+      method: 'tools/call',
+      params: {
+        name: 'generate_repo_map',
+        arguments: {
+          cwd: sampleAppDir,
+          targets: ['src/index.ts'],
+          maxTokens: 500,
+        },
+      },
+    });
+
+    expect(res?.id).toBe(12);
+    expect(res?.error).toBeUndefined();
+    const content = (res?.result as any).content[0].text;
+    expect(content).toContain('Codebase Architectural Repo-Map');
+    expect(content).toContain('src/index.ts');
+  });
+
+  it('calls search_codebase_intent MCP tool with BM25 ranking', async () => {
+    const res = await server.handleMessage({
+      jsonrpc: '2.0',
+      id: 13,
+      method: 'tools/call',
+      params: {
+        name: 'search_codebase_intent',
+        arguments: {
+          cwd: sampleAppDir,
+          query: 'auth service login user',
+          topK: 3,
+        },
+      },
+    });
+
+    expect(res?.id).toBe(13);
+    expect(res?.error).toBeUndefined();
+    const content = (res?.result as any).content[0].text;
+    expect(content).toContain('BM25 INTENT SEARCH');
+    expect(content).toContain('src/services/auth.ts');
+  });
+
+  it('calls generate_visualizer MCP tool and creates report', async () => {
+    const tmpOut = path.resolve('tests/fixtures/mcp_visualizer.html');
+    try {
+      const res = await server.handleMessage({
+        jsonrpc: '2.0',
+        id: 14,
+        method: 'tools/call',
+        params: {
+          name: 'generate_visualizer',
+          arguments: {
+            cwd: sampleAppDir,
+            targets: ['src/index.ts'],
+            outputPath: tmpOut,
+          },
+        },
+      });
+
+      expect(res?.id).toBe(14);
+      expect(res?.error).toBeUndefined();
+      expect(fs.existsSync(tmpOut)).toBe(true);
+    } finally {
+      if (fs.existsSync(tmpOut)) fs.unlinkSync(tmpOut);
+    }
+  });
+
+  it('returns error for unknown tool call', async () => {
+    const res = await server.handleMessage({
+      jsonrpc: '2.0',
+      id: 15,
       method: 'tools/call',
       params: {
         name: 'unknown_tool',
@@ -269,7 +341,7 @@ describe('Model Context Protocol (MCP) Server', () => {
       },
     });
 
-    expect(res?.id).toBe(12);
+    expect(res?.id).toBe(15);
     expect(res?.error).toBeDefined();
     expect(res?.error?.code).toBe(-32601);
   });

@@ -76,6 +76,9 @@ export interface JsonRpcResponse {
 import fg from 'fast-glob';
 import { AstCache } from './cache.js';
 import { ProjectMemoryManager } from './memory.js';
+import { generateRepoMap } from './repo-map.js';
+import { BM25CodeSearch } from './query.js';
+import { DependencyAnalyzer } from './analyzer.js';
 
 export const MCP_TOOLS = [
   {
@@ -288,6 +291,76 @@ export const MCP_TOOLS = [
       },
     },
   },
+  {
+    name: 'generate_repo_map',
+    description:
+      'Generate an ultra-compact PageRank architectural repo-map showing top key hubs and exported signatures (global spatial orientation)',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        targets: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Optional entry target files. If omitted, uses primary project files.',
+        },
+        maxTokens: {
+          type: 'number',
+          description: 'Maximum token budget for the repo-map (default: 1024)',
+        },
+        cwd: {
+          type: 'string',
+          description: 'Workspace root directory (defaults to current project root)',
+        },
+      },
+    },
+  },
+  {
+    name: 'search_codebase_intent',
+    description:
+      'Search codebase using in-memory BM25 semantic intent routing over files, exported symbols, and documentation (e.g. "jwt token verification")',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'Natural language or keyword search query',
+        },
+        topK: {
+          type: 'number',
+          description: 'Maximum number of ranked matching files to return (default: 5)',
+        },
+        cwd: {
+          type: 'string',
+          description: 'Workspace root directory (defaults to current project root)',
+        },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'generate_visualizer',
+    description:
+      'Generate an interactive, offline zero-dependency HTML canvas visualizer report of the dependency graph and blast radius',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        targets: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Target entry files to visualize',
+        },
+        outputPath: {
+          type: 'string',
+          description: 'Optional custom HTML output file path (defaults to .scp/visualizer.html)',
+        },
+        cwd: {
+          type: 'string',
+          description: 'Workspace root directory (defaults to current project root)',
+        },
+      },
+      required: ['targets'],
+    },
+  },
 ];
 
 /**
@@ -326,7 +399,7 @@ export class McpServer {
               },
               serverInfo: {
                 name: 'smart-context-packer',
-                version: '2.0.0',
+                version: '2.1.0',
               },
             },
           };
@@ -640,6 +713,127 @@ export class McpServer {
                   {
                     type: 'text',
                     text: `<!-- SMART CONTEXT PACKER: PROJECT MEMORY -->\nFound ${results.length} memory note(s):\n\n${text}`,
+                  },
+                ],
+              },
+            };
+          }
+
+          if (toolName === 'generate_repo_map') {
+            const rawTargets = Array.isArray(args.targets) ? args.targets.map(String) : [];
+            const effectiveCwd = resolveEffectiveCwd(rawTargets, args.cwd as string | undefined);
+            const maxTokens = typeof args.maxTokens === 'number' ? args.maxTokens : 1024;
+
+            let targets = rawTargets;
+            if (targets.length === 0) {
+              const discovered = fg.sync(['**/*.{ts,tsx,js,jsx,vue,go,rs,py,lua}'], {
+                cwd: effectiveCwd,
+                ignore: ['node_modules/**', 'dist/**', '.git/**', 'coverage/**', '**/*.test.*', '**/*.spec.*'],
+                absolute: false,
+              });
+              targets = discovered.slice(0, 30);
+            }
+
+            if (targets.length === 0) {
+              return {
+                jsonrpc: '2.0',
+                id,
+                result: {
+                  content: [{ type: 'text', text: 'No code files detected to construct repo-map.' }],
+                },
+              };
+            }
+
+            const analyzer = new DependencyAnalyzer({ cwd: effectiveCwd, maxDepth: 2, noCache: false });
+            const graph = await analyzer.analyze(targets);
+            const repoMapResult = generateRepoMap(graph, { maxTokens });
+
+            return {
+              jsonrpc: '2.0',
+              id,
+              result: {
+                content: [{ type: 'text', text: repoMapResult.mapText }],
+              },
+            };
+          }
+
+          if (toolName === 'search_codebase_intent') {
+            const query = String(args.query || '');
+            const topK = typeof args.topK === 'number' ? args.topK : 5;
+            const effectiveCwd = resolveEffectiveCwd([], args.cwd as string | undefined);
+
+            const candidateFiles = fg.sync(['**/*.{ts,tsx,js,jsx,vue,go,rs,py,lua}'], {
+              cwd: effectiveCwd,
+              ignore: ['node_modules/**', 'dist/**', '.git/**', 'coverage/**'],
+              absolute: false,
+            });
+
+            const searcher = new BM25CodeSearch();
+            for (const file of candidateFiles) {
+              try {
+                const fullPath = path.resolve(effectiveCwd, file);
+                const content = fs.readFileSync(fullPath, 'utf-8');
+                const ext = path.extname(file);
+                const symbols = AstCache.extractExportedSymbols(content, ext);
+                searcher.addDocument({ path: file, symbols, content: content.slice(0, 1000) });
+              } catch {
+                // ignore
+              }
+            }
+
+            const results = searcher.search(query, topK);
+            if (results.length === 0) {
+              return {
+                jsonrpc: '2.0',
+                id,
+                result: {
+                  content: [{ type: 'text', text: `No relevant files found matching intent query: "${query}"` }],
+                },
+              };
+            }
+
+            const text = results
+              .map(
+                (r, i) =>
+                  `${i + 1}. \`${r.path}\` (Score: ${r.score.toFixed(2)}) — matched: [${r.matchedTerms.join(', ')}]`
+              )
+              .join('\n');
+
+            return {
+              jsonrpc: '2.0',
+              id,
+              result: {
+                content: [
+                  {
+                    type: 'text',
+                    text: `<!-- SMART CONTEXT PACKER: BM25 INTENT SEARCH -->\nTop ${results.length} matches for "${query}":\n\n${text}`,
+                  },
+                ],
+              },
+            };
+          }
+
+          if (toolName === 'generate_visualizer') {
+            const rawTargets = Array.isArray(args.targets) ? args.targets.map(String) : [];
+            const effectiveCwd = resolveEffectiveCwd(rawTargets, args.cwd as string | undefined);
+            const customOut = args.outputPath ? String(args.outputPath) : undefined;
+
+            const packResult = await packContext({
+              cwd: effectiveCwd,
+              targets: rawTargets,
+              visualize: customOut || true,
+              blastRadius: true,
+              quiet: true,
+            });
+
+            return {
+              jsonrpc: '2.0',
+              id,
+              result: {
+                content: [
+                  {
+                    type: 'text',
+                    text: `✔ Interactive Visualizer generated successfully!\nReport file: ${packResult.visualizerPath}`,
                   },
                 ],
               },

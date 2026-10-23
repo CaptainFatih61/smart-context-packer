@@ -27,6 +27,9 @@ const EXTENSIONS = [
   '.cjs',
   '.json',
   '.lua',
+  '.py',
+  '.go',
+  '.rs',
 ];
 
 export class DependencyAnalyzer {
@@ -287,13 +290,31 @@ export class DependencyAnalyzer {
       return Array.from(specifiers);
     }
 
-    // 3. Vue Single File Components: extract script sections
+    // 3. Go files
+    if (normalizedExt === '.go') {
+      this.parseGoImports(content).forEach((imp) => specifiers.add(imp));
+      return Array.from(specifiers);
+    }
+
+    // 4. Rust files
+    if (normalizedExt === '.rs') {
+      this.parseRustImports(content).forEach((imp) => specifiers.add(imp));
+      return Array.from(specifiers);
+    }
+
+    // 5. Python files
+    if (normalizedExt === '.py') {
+      this.parsePythonImports(content).forEach((imp) => specifiers.add(imp));
+      return Array.from(specifiers);
+    }
+
+    // 6. Vue Single File Components: extract script sections
     let codeToParse = content;
     if (normalizedExt === '.vue') {
       codeToParse = this.extractVueScripts(content);
     }
 
-    // 4. TypeScript / JavaScript / JSX
+    // 7. TypeScript / JavaScript / JSX
     this.parseJavaScriptImports(codeToParse).forEach((imp) => specifiers.add(imp));
 
     return Array.from(specifiers);
@@ -372,6 +393,81 @@ export class DependencyAnalyzer {
     // dofile('file.lua')
     const dofileRegex = /\bdofile\s*\(?['"]([^'"]+)['"]\)?/g;
     while ((match = dofileRegex.exec(cleanLua)) !== null) {
+      if (match[1]) results.add(match[1]);
+    }
+
+    return Array.from(results);
+  }
+
+  /**
+   * Parses Go import declarations (single and multi-line blocks).
+   */
+  private parseGoImports(goContent: string): string[] {
+    const results = new Set<string>();
+    const cleanGo = goContent.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+
+    // Single import: import "fmt" or import alias "path/pkg"
+    const singleRegex = /\bimport\s+(?:[a-zA-Z0-9_.]+\s+)?["']([^"']+)["']/g;
+    let match: RegExpExecArray | null;
+    while ((match = singleRegex.exec(cleanGo)) !== null) {
+      if (match[1]) results.add(match[1]);
+    }
+
+    // Block import: import ( ... )
+    const blockRegex = /\bimport\s*\(([\s\S]*?)\)/g;
+    let blockMatch: RegExpExecArray | null;
+    while ((blockMatch = blockRegex.exec(cleanGo)) !== null) {
+      const block = blockMatch[1]!;
+      const itemRegex = /(?:[a-zA-Z0-9_.]+\s+)?["']([^"']+)["']/g;
+      let itemMatch: RegExpExecArray | null;
+      while ((itemMatch = itemRegex.exec(block)) !== null) {
+        if (itemMatch[1]) results.add(itemMatch[1]);
+      }
+    }
+
+    return Array.from(results);
+  }
+
+  /**
+   * Parses Rust mod declarations and use statements.
+   */
+  private parseRustImports(rustContent: string): string[] {
+    const results = new Set<string>();
+    const cleanRust = rustContent.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+
+    // mod declarations: mod foo; or pub mod foo;
+    const modRegex = /\b(?:pub\s+)?mod\s+([a-zA-Z0-9_]+)\s*;/g;
+    let match: RegExpExecArray | null;
+    while ((match = modRegex.exec(cleanRust)) !== null) {
+      if (match[1]) results.add(`mod:${match[1]}`);
+    }
+
+    // use statements: use crate::foo::Bar; or use super::foo;
+    const useRegex = /\buse\s+((?:crate|super|self)::[a-zA-Z0-9_:]+)/g;
+    while ((match = useRegex.exec(cleanRust)) !== null) {
+      if (match[1]) results.add(match[1]);
+    }
+
+    return Array.from(results);
+  }
+
+  /**
+   * Parses Python import and from ... import statements.
+   */
+  private parsePythonImports(pyContent: string): string[] {
+    const results = new Set<string>();
+    const cleanPy = pyContent.replace(/#.*$/gm, '');
+
+    // from .foo import bar or from ..database import models
+    const fromRegex = /\bfrom\s+([a-zA-Z0-9_.]+)\s+import/g;
+    let match: RegExpExecArray | null;
+    while ((match = fromRegex.exec(cleanPy)) !== null) {
+      if (match[1]) results.add(match[1]);
+    }
+
+    // import foo or import foo.bar
+    const importRegex = /\bimport\s+([a-zA-Z0-9_.]+)/g;
+    while ((match = importRegex.exec(cleanPy)) !== null) {
       if (match[1]) results.add(match[1]);
     }
 
@@ -478,6 +574,105 @@ export class DependencyAnalyzer {
       if (verifiedFromCwd) return this.toRelative(verifiedFromCwd);
     }
 
+    // 4. Go package resolution
+    if (fromFile.toLowerCase().endsWith('.go')) {
+      // Relative import (e.g. "./subpkg" or "../pkg")
+      if (specifier.startsWith('.')) {
+        const candidatePath = path.resolve(fromDir, specifier);
+        const verified = this.findFileWithExtension(candidatePath, ['.go']);
+        if (verified) return this.toRelative(verified);
+      }
+
+      // Module-rooted import (e.g. "my-module/pkg/auth")
+      const goModPath = path.join(this.cwd, 'go.mod');
+      if (fs.existsSync(goModPath)) {
+        try {
+          const modContent = fs.readFileSync(goModPath, 'utf-8');
+          const modMatch = modContent.match(/^module\s+([^\s\r\n]+)/m);
+          if (modMatch && modMatch[1]) {
+            const modName = modMatch[1];
+            if (specifier === modName || specifier.startsWith(modName + '/')) {
+              const subPath = specifier === modName ? '.' : specifier.slice(modName.length + 1);
+              const candidatePath = path.resolve(this.cwd, subPath);
+              const verified = this.findFileWithExtension(candidatePath, ['.go']);
+              if (verified) return this.toRelative(verified);
+            }
+          }
+        } catch {
+          // ignore go.mod read errors
+        }
+      }
+    }
+
+    // 5. Rust module & use resolution
+    if (fromFile.toLowerCase().endsWith('.rs')) {
+      if (specifier.startsWith('mod:')) {
+        const modName = specifier.slice(4);
+        const directFile = path.resolve(fromDir, `${modName}.rs`);
+        if (fs.existsSync(directFile) && fs.statSync(directFile).isFile()) {
+          return this.toRelative(directFile);
+        }
+        const modDirFile = path.resolve(fromDir, modName, 'mod.rs');
+        if (fs.existsSync(modDirFile) && fs.statSync(modDirFile).isFile()) {
+          return this.toRelative(modDirFile);
+        }
+      }
+
+      if (specifier.startsWith('crate::')) {
+        const parts = specifier.slice(7).split('::');
+        const first = parts[0]!;
+        // Try src/first.rs or src/first/mod.rs
+        const tryPaths = [
+          path.resolve(this.cwd, 'src', `${first}.rs`),
+          path.resolve(this.cwd, 'src', first, 'mod.rs'),
+          path.resolve(fromDir, `${first}.rs`),
+          path.resolve(fromDir, first, 'mod.rs')
+        ];
+        for (const p of tryPaths) {
+          if (fs.existsSync(p) && fs.statSync(p).isFile()) {
+            return this.toRelative(p);
+          }
+        }
+      }
+
+      if (specifier.startsWith('super::')) {
+        const parts = specifier.slice(7).split('::');
+        const first = parts[0]!;
+        const tryPaths = [
+          path.resolve(fromDir, '..', `${first}.rs`),
+          path.resolve(fromDir, '..', first, 'mod.rs')
+        ];
+        for (const p of tryPaths) {
+          if (fs.existsSync(p) && fs.statSync(p).isFile()) {
+            return this.toRelative(p);
+          }
+        }
+      }
+    }
+
+    // 6. Python import resolution
+    if (fromFile.toLowerCase().endsWith('.py')) {
+      if (specifier.startsWith('.')) {
+        // Count leading dots
+        let dots = 0;
+        while (specifier[dots] === '.') dots++;
+        const rest = specifier.slice(dots).replace(/\./g, '/');
+        const baseDir = dots === 1 ? fromDir : path.resolve(fromDir, '../'.repeat(dots - 1));
+        const candidate = rest ? path.resolve(baseDir, rest) : baseDir;
+        const verified = this.findFileWithExtension(candidate, ['.py']);
+        if (verified) return this.toRelative(verified);
+      } else {
+        const pyConverted = specifier.replace(/\./g, '/');
+        const candidateFromDir = path.resolve(fromDir, pyConverted);
+        const verifiedFromDir = this.findFileWithExtension(candidateFromDir, ['.py']);
+        if (verifiedFromDir) return this.toRelative(verifiedFromDir);
+
+        const candidateFromCwd = path.resolve(this.cwd, pyConverted);
+        const verifiedFromCwd = this.findFileWithExtension(candidateFromCwd, ['.py']);
+        if (verifiedFromCwd) return this.toRelative(verifiedFromCwd);
+      }
+    }
+
     // Ignore external node package imports (e.g. 'vue', 'react', 'lodash')
     if (this.isBareNodeModule(specifier)) {
       return null;
@@ -527,6 +722,29 @@ export class DependencyAnalyzer {
         if (fs.existsSync(indexFile) && fs.statSync(indexFile).isFile()) {
           return indexFile;
         }
+      }
+
+      // Python __init__.py
+      const pyInit = path.join(basePath, '__init__.py');
+      if (fs.existsSync(pyInit) && fs.statSync(pyInit).isFile()) {
+        return pyInit;
+      }
+
+      // Rust mod.rs
+      const rustMod = path.join(basePath, 'mod.rs');
+      if (fs.existsSync(rustMod) && fs.statSync(rustMod).isFile()) {
+        return rustMod;
+      }
+
+      // Go package directory: pick first .go file in package
+      try {
+        const files = fs.readdirSync(basePath);
+        const goFile = files.find((f) => f.endsWith('.go') && !f.endsWith('_test.go'));
+        if (goFile) {
+          return path.join(basePath, goFile);
+        }
+      } catch {
+        // ignore readdir error
       }
     }
 
