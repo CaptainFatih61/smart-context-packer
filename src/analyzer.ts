@@ -14,6 +14,7 @@ import {
   DEFAULT_IGNORED_PATTERNS,
 } from './filter.js';
 import { calculateFileStats } from './tokens.js';
+import { locatePrismaSchema, extractRelevantPrismaSchema } from './prisma.js';
 
 const EXTENSIONS = [
   '.ts',
@@ -170,6 +171,34 @@ export class DependencyAnalyzer {
     // 3. Handle reverse dependency discovery if requested (--reverse)
     if (this.reverse) {
       await this.discoverReverseDependencies(normalizedTargets, nodes);
+    }
+
+    // 4. Smart Prisma Schema Model & Relation Extraction
+    const prismaSchemaPath = locatePrismaSchema(this.cwd);
+    if (prismaSchemaPath) {
+      try {
+        const schemaContent = fs.readFileSync(prismaSchemaPath, 'utf-8');
+        const allCode = Array.from(nodes.values()).map((n) => n.content);
+        const extractedPrisma = extractRelevantPrismaSchema(schemaContent, allCode);
+        if (extractedPrisma) {
+          const relativeSchemaPath = this.toRelative(prismaSchemaPath);
+          const virtualPath = `${relativeSchemaPath} [Extracted Models]`;
+          const stats = calculateFileStats(extractedPrisma);
+          nodes.set(virtualPath, {
+            filePath: virtualPath,
+            absolutePath: prismaSchemaPath,
+            type: 'dependency',
+            depth: 1,
+            imports: [],
+            importedBy: [...normalizedTargets],
+            isSkeleton: false,
+            content: extractedPrisma,
+            stats,
+          });
+        }
+      } catch {
+        // Silently continue if prisma schema extraction fails
+      }
     }
 
     return {

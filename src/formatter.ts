@@ -299,7 +299,10 @@ function detectLanguage(filePath: string): string {
       return 'html';
     case '.css':
       return 'css';
+    case '.prisma':
+      return 'prisma';
     default:
+      if (filePath.includes('.prisma')) return 'prisma';
       return '';
   }
 }
