@@ -86,7 +86,17 @@ export class ContextFormatter {
       sections.push('');
     }
 
-    // 5. File Contents (unless treeOnly)
+    // 5. Git Diff Patch (if present)
+    const diffPatch = graph.gitDiffPatch || this.options.gitDiffPatch;
+    if (diffPatch) {
+      sections.push('## Git Diff Patch');
+      sections.push('```diff');
+      sections.push(diffPatch.trimEnd());
+      sections.push('```');
+      sections.push('');
+    }
+
+    // 6. File Contents (unless treeOnly)
     if (!this.options.treeOnly) {
       sections.push('## Packed Files');
       sections.push('');
@@ -143,6 +153,13 @@ export class ContextFormatter {
     xml.push('  <dependency_map>');
     xml.push(`<![CDATA[\n${renderDependencyMap(graph)}\n]]>`);
     xml.push('  </dependency_map>');
+
+    const diffPatch = graph.gitDiffPatch || this.options.gitDiffPatch;
+    if (diffPatch) {
+      xml.push('  <git_diff>');
+      xml.push(`<![CDATA[\n${diffPatch}\n]]>`);
+      xml.push('  </git_diff>');
+    }
 
     if (!this.options.treeOnly) {
       xml.push('  <files>');

@@ -6,17 +6,40 @@ import { DependencyAnalyzer } from './analyzer.js';
 import { aggregateTokenStats } from './tokens.js';
 import { ContextFormatter } from './formatter.js';
 
+import { getGitModifiedFiles, getGitDiffPatch } from './git.js';
+
 export * from './types.js';
 export * from './analyzer.js';
 export * from './filter.js';
 export * from './formatter.js';
 export * from './tokens.js';
+export * from './git.js';
 
 /**
  * Main programmatic API to pack dependencies and generate AI context prompts.
  */
 export async function packContext(options: PackOptions): Promise<PackResult> {
   const cwd = path.resolve(options.cwd || process.cwd());
+
+  let targets = options.targets ? [...options.targets] : [];
+  let gitDiffPatch = options.gitDiffPatch;
+
+  if (options.diff || options.staged) {
+    const gitFiles = getGitModifiedFiles(cwd, Boolean(options.staged));
+    for (const gf of gitFiles) {
+      if (!targets.includes(gf)) {
+        targets.push(gf);
+      }
+    }
+    if (!gitDiffPatch) {
+      gitDiffPatch = getGitDiffPatch(cwd, Boolean(options.staged));
+    }
+  }
+
+  if (targets.length === 0) {
+    throw new Error('No target files specified and no modified Git files detected.');
+  }
+
   const analyzer = new DependencyAnalyzer({
     cwd,
     maxDepth: options.depth ?? options.maxDepth ?? 2,
@@ -25,15 +48,21 @@ export async function packContext(options: PackOptions): Promise<PackResult> {
     redact: options.redact ?? true,
     customAliases: options.customAliases,
     ignorePatterns: options.ignorePatterns,
+    diff: options.diff,
+    staged: options.staged,
   });
 
-  const graph = await analyzer.analyze(options.targets);
+  const graph = await analyzer.analyze(targets);
+  if (gitDiffPatch) {
+    graph.gitDiffPatch = gitDiffPatch;
+  }
   const stats = aggregateTokenStats(graph);
 
   const formatter = new ContextFormatter({
     format: options.format || 'md',
     treeOnly: options.treeOnly || false,
     includeStatsSummary: options.includeStatsSummary !== false,
+    gitDiffPatch,
   });
 
   const formattedPrompt = formatter.format(graph, stats);
@@ -66,5 +95,6 @@ export async function packContext(options: PackOptions): Promise<PackResult> {
     graph,
     outputPath,
     copiedToClipboard,
+    gitDiffPatch,
   };
 }

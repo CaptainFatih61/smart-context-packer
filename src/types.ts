@@ -44,6 +44,8 @@ export interface DependencyGraph {
   rootCwd: string;
   /** Missing / unresolvable local relative import paths */
   missingDependencies: string[];
+  /** Unified Git diff patch if diff/staged mode was enabled */
+  gitDiffPatch?: string;
 }
 
 export interface AnalyzerOptions {
@@ -63,6 +65,10 @@ export interface AnalyzerOptions {
   customAliases?: Record<string, string>;
   /** Files or glob patterns to ignore */
   ignorePatterns?: string[];
+  /** If true, includes all uncommitted modified and untracked files */
+  diff?: boolean;
+  /** If true, includes only staged git files */
+  staged?: boolean;
 }
 
 export interface TokenStats {
@@ -83,10 +89,12 @@ export interface FormatterOptions {
   format?: OutputFormat;
   treeOnly?: boolean;
   includeStatsSummary?: boolean;
+  /** Optional unified Git diff patch to append */
+  gitDiffPatch?: string;
 }
 
 export interface PackOptions extends AnalyzerOptions, FormatterOptions {
-  targets: string[];
+  targets?: string[];
   output?: string;
   copy?: boolean;
   quiet?: boolean;
@@ -98,4 +106,5 @@ export interface PackResult {
   graph: DependencyGraph;
   outputPath?: string;
   copiedToClipboard: boolean;
+  gitDiffPatch?: string;
 }
