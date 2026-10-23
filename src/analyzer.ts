@@ -15,6 +15,7 @@ import {
 } from './filter.js';
 import { calculateFileStats } from './tokens.js';
 import { locatePrismaSchema, extractRelevantPrismaSchema } from './prisma.js';
+import { AstCache, extractExportedSymbols } from './cache.js';
 
 const EXTENSIONS = [
   '.ts',
@@ -36,6 +37,7 @@ export class DependencyAnalyzer {
   private redact: boolean;
   private filter: FileFilter;
   private aliasMap: Map<string, string>;
+  private cache: AstCache | null;
 
   constructor(options: AnalyzerOptions = {}) {
     this.cwd = path.resolve(options.cwd || process.cwd());
@@ -45,6 +47,11 @@ export class DependencyAnalyzer {
     this.redact = options.redact !== false;
     this.filter = new FileFilter(this.cwd, options.ignorePatterns || []);
     this.aliasMap = this.loadTsConfigAliases(options.customAliases);
+    this.cache = options.noCache ? null : new AstCache(this.cwd);
+  }
+
+  public getCacheStats(): { hits: number; misses: number } | undefined {
+    return this.cache ? { hits: this.cache.hits, misses: this.cache.misses } : undefined;
   }
 
   /**
@@ -111,8 +118,20 @@ export class DependencyAnalyzer {
       const rawContent = fs.readFileSync(absolutePath, 'utf-8');
       const ext = path.extname(filePath);
 
-      // Extract raw import specifiers
-      const rawSpecifiers = this.extractImportsFromFile(rawContent, ext, absolutePath);
+      // Extract raw import specifiers & exported symbols with cache
+      let rawSpecifiers: string[];
+      let exportedSymbols: string[];
+
+      const cached = this.cache?.get(filePath, absolutePath, rawContent);
+      if (cached) {
+        rawSpecifiers = cached.rawImports;
+        exportedSymbols = cached.exportedSymbols;
+      } else {
+        rawSpecifiers = this.extractImportsFromFile(rawContent, ext, absolutePath);
+        exportedSymbols = extractExportedSymbols(rawContent, ext);
+        const baseStats = calculateFileStats(rawContent);
+        this.cache?.set(filePath, absolutePath, rawContent, rawSpecifiers, baseStats, exportedSymbols);
+      }
 
       // Resolve local filesystem imports
       const resolvedImports: string[] = [];
@@ -149,6 +168,7 @@ export class DependencyAnalyzer {
         isSkeleton,
         content: processedContent,
         stats,
+        exportedSymbols,
       };
 
       nodes.set(filePath, node);
@@ -200,6 +220,8 @@ export class DependencyAnalyzer {
         // Silently continue if prisma schema extraction fails
       }
     }
+
+    this.cache?.save();
 
     return {
       targets: normalizedTargets,

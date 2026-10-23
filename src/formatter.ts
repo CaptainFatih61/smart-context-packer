@@ -96,7 +96,57 @@ export class ContextFormatter {
       sections.push('');
     }
 
-    // 6. File Contents (unless treeOnly)
+    // 6. Blast-Radius & Impact Analysis (if present)
+    const blastRadius = graph.blastRadius || this.options.blastRadius;
+    if (blastRadius) {
+      sections.push('## 💥 Blast-Radius & Impact Analysis');
+      sections.push(`- **Risk Level**: \`${blastRadius.riskLevel}\` (${blastRadius.riskScore}/10)`);
+      sections.push(`- **Risk Score**: ${blastRadius.riskScore}/10`);
+      sections.push(`- **Summary**: ${blastRadius.summary}`);
+      if (blastRadius.callers.length > 0) {
+        sections.push(
+          `- **Impacted Callers (${blastRadius.callers.length})**: ${blastRadius.callers
+            .map((c) => `\`${c}\``)
+            .join(', ')}`
+        );
+      } else {
+        sections.push('- **Impacted Callers**: None (isolated component / entrypoint)');
+      }
+      if (blastRadius.impactedTests.length > 0) {
+        sections.push(
+          `- **Mapped Test Files (${blastRadius.impactedTests.length})**: ${blastRadius.impactedTests
+            .map((t) => `\`${t}\``)
+            .join(', ')}`
+        );
+      } else {
+        sections.push('- **Mapped Test Files**: None detected in workspace');
+      }
+      if (blastRadius.untestedTargets.length > 0) {
+        sections.push('> [!WARNING]');
+        sections.push(
+          `> **Untested Risk Alert:** The following target files have no directly mapped unit test suites:`
+        );
+        for (const ut of blastRadius.untestedTargets) {
+          sections.push(`> - \`${ut}\``);
+        }
+      }
+      sections.push('');
+    }
+
+    // 7. Persistent Project Memory (.scp/memory.json)
+    const memories = graph.memories || this.options.memories;
+    if (memories && memories.length > 0) {
+      sections.push('## 🧠 Persistent Project Memory (.scp/memory.json)');
+      sections.push(
+        'The following historical architectural decisions and gotchas are linked to the files in this pack:'
+      );
+      for (const m of memories) {
+        sections.push(`- **[\`${m.pattern}\` | ${m.category}]**: ${m.content}`);
+      }
+      sections.push('');
+    }
+
+    // 8. File Contents (unless treeOnly)
     if (!this.options.treeOnly) {
       sections.push('## Packed Files');
       sections.push('');
@@ -159,6 +209,35 @@ export class ContextFormatter {
       xml.push('  <git_diff>');
       xml.push(`<![CDATA[\n${diffPatch}\n]]>`);
       xml.push('  </git_diff>');
+    }
+
+    const blastRadius = graph.blastRadius || this.options.blastRadius;
+    if (blastRadius) {
+      xml.push(
+        `  <blast_radius risk_level="${blastRadius.riskLevel}" risk_score="${blastRadius.riskScore}">`
+      );
+      xml.push(`    <summary>${escapeXml(blastRadius.summary)}</summary>`);
+      xml.push(`    <callers>${blastRadius.callers.map(escapeXml).join(',')}</callers>`);
+      xml.push(
+        `    <impacted_tests>${blastRadius.impactedTests.map(escapeXml).join(',')}</impacted_tests>`
+      );
+      xml.push(
+        `    <untested_targets>${blastRadius.untestedTargets.map(escapeXml).join(',')}</untested_targets>`
+      );
+      xml.push('  </blast_radius>');
+    }
+
+    const memories = graph.memories || this.options.memories;
+    if (memories && memories.length > 0) {
+      xml.push('  <project_memory>');
+      for (const m of memories) {
+        xml.push(
+          `    <memory id="${escapeXml(m.id)}" pattern="${escapeXml(m.pattern)}" category="${m.category}">${escapeXml(
+            m.content
+          )}</memory>`
+        );
+      }
+      xml.push('  </project_memory>');
     }
 
     if (!this.options.treeOnly) {

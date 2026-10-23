@@ -73,11 +73,65 @@ export interface JsonRpcResponse {
   };
 }
 
+import fg from 'fast-glob';
+import { AstCache } from './cache.js';
+import { ProjectMemoryManager } from './memory.js';
+
 export const MCP_TOOLS = [
+  {
+    name: 'search_codebase_index',
+    description:
+      'Search compact ~50-token index of workspace files and exported symbols without loading file contents (Layer 1 Progressive Disclosure)',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'Search keyword to filter file paths and exported symbol names',
+        },
+        limit: {
+          type: 'number',
+          description: 'Maximum number of file entries to return (default: 50)',
+        },
+        cwd: {
+          type: 'string',
+          description: 'Workspace root directory (defaults to current project root)',
+        },
+      },
+    },
+  },
+  {
+    name: 'inspect_dependency_graph',
+    description:
+      'Inspect visual directory tree, dependency relationships, and circular warnings without file contents (Layer 2 Progressive Disclosure)',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        targets: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Target entry file(s) to inspect',
+        },
+        reverse: {
+          type: 'boolean',
+          description: 'Discover files in workspace that import the targets',
+        },
+        blastRadius: {
+          type: 'boolean',
+          description: 'Include blast-radius impact analysis, impacted tests, and risk scoring',
+        },
+        cwd: {
+          type: 'string',
+          description: 'Workspace root directory (defaults to current project root)',
+        },
+      },
+      required: ['targets'],
+    },
+  },
   {
     name: 'pack_context',
     description:
-      'Analyze local dependency graph and package entry files and dependencies into an AI-directive prompt (Markdown/XML)',
+      'Analyze local dependency graph and package entry files and dependencies into an AI-directive prompt (Layer 3 Progressive Disclosure)',
     inputSchema: {
       type: 'object',
       properties: {
@@ -98,38 +152,26 @@ export const MCP_TOOLS = [
           type: 'number',
           description: 'Maximum token budget; automatically skeletonizes deep dependencies to fit',
         },
+        blastRadius: {
+          type: 'boolean',
+          description: 'Include blast-radius impact analysis, impacted unit tests, and risk scoring',
+        },
         includeDiff: {
           type: 'boolean',
           description: 'Include uncommitted Git working tree diff',
+        },
+        noCache: {
+          type: 'boolean',
+          description: 'Bypass SHA-256 AST cache',
+        },
+        includeMemory: {
+          type: 'boolean',
+          description: 'Inject persistent project memories from .scp/memory.json (default: true)',
         },
         format: {
           type: 'string',
           enum: ['md', 'xml'],
           description: 'Output prompt format: md (Markdown) or xml',
-        },
-        cwd: {
-          type: 'string',
-          description: 'Workspace root directory (defaults to current project root)',
-        },
-      },
-      required: ['targets'],
-    },
-  },
-  {
-    name: 'inspect_dependency_graph',
-    description:
-      'Inspect visual directory tree and dependency relationships without file contents',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        targets: {
-          type: 'array',
-          items: { type: 'string' },
-          description: 'Target entry file(s) to inspect',
-        },
-        reverse: {
-          type: 'boolean',
-          description: 'Discover files in workspace that import the targets',
         },
         cwd: {
           type: 'string',
@@ -162,10 +204,82 @@ export const MCP_TOOLS = [
           type: 'number',
           description: 'Maximum token budget; automatically skeletonizes deep dependencies to fit',
         },
+        blastRadius: {
+          type: 'boolean',
+          description: 'Include blast-radius impact analysis, impacted unit tests, and risk scoring',
+        },
+        noCache: {
+          type: 'boolean',
+          description: 'Bypass SHA-256 AST cache',
+        },
+        includeMemory: {
+          type: 'boolean',
+          description: 'Inject persistent project memories from .scp/memory.json (default: true)',
+        },
         format: {
           type: 'string',
           enum: ['md', 'xml'],
           description: 'Output prompt format: md (Markdown) or xml',
+        },
+        cwd: {
+          type: 'string',
+          description: 'Workspace root directory (defaults to current project root)',
+        },
+      },
+    },
+  },
+  {
+    name: 'save_project_memory',
+    description:
+      'Store persistent architectural decisions, bug root causes, gotchas, or rules in .scp/memory.json linked to file patterns',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        pattern: {
+          type: 'string',
+          description: 'Glob or file pattern to link this memory to (e.g. "src/mcp.ts", "src/auth/**", "*.test.ts")',
+        },
+        content: {
+          type: 'string',
+          description: 'Architectural decision, gotcha, or pattern note to persist',
+        },
+        category: {
+          type: 'string',
+          enum: ['architecture', 'gotcha', 'decision', 'rule'],
+          description: 'Category of memory note (default: architecture)',
+        },
+        tags: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Optional tags for categorization',
+        },
+        cwd: {
+          type: 'string',
+          description: 'Workspace root directory (defaults to current project root)',
+        },
+      },
+      required: ['pattern', 'content'],
+    },
+  },
+  {
+    name: 'query_project_memory',
+    description:
+      'Query stored architectural memories and gotchas from .scp/memory.json by file path or search keyword',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        pattern: {
+          type: 'string',
+          description: 'File path or glob pattern to find matching memories for',
+        },
+        query: {
+          type: 'string',
+          description: 'Keyword search inside memory note contents',
+        },
+        category: {
+          type: 'string',
+          enum: ['architecture', 'gotcha', 'decision', 'rule'],
+          description: 'Filter by memory category',
         },
         cwd: {
           type: 'string',
@@ -212,7 +326,7 @@ export class McpServer {
               },
               serverInfo: {
                 name: 'smart-context-packer',
-                version: '1.3.0',
+                version: '2.0.0',
               },
             },
           };
@@ -244,11 +358,104 @@ export class McpServer {
           const toolName = params.name;
           const args = params.arguments || {};
 
+          if (toolName === 'search_codebase_index') {
+            const effectiveCwd = resolveEffectiveCwd([], args.cwd as string | undefined);
+            const limit = typeof args.limit === 'number' && args.limit > 0 ? args.limit : 50;
+            const query = typeof args.query === 'string' ? args.query.trim().toLowerCase() : '';
+
+            const files = await fg(
+              ['**/*.{ts,tsx,js,jsx,mjs,cjs,vue,svelte,py,go,rs,java,c,cpp,cs,php,rb,swift,kt,sql,prisma}'],
+              {
+                cwd: effectiveCwd,
+                ignore: ['**/node_modules/**', '**/dist/**', '**/.git/**', '**/coverage/**', '**/.scp/**', '**/build/**'],
+                dot: false,
+              }
+            );
+
+            const cache = new AstCache(effectiveCwd);
+            const results: Array<{ filePath: string; lines: number; tokens: number; symbols: string[] }> = [];
+
+            for (const file of files) {
+              const fullPath = path.resolve(effectiveCwd, file);
+              const relPath = path.normalize(file).replace(/\\/g, '/');
+
+              let symbols: string[] = [];
+              let lines = 0;
+              let tokens = 0;
+
+              const cached = cache.get(fullPath);
+              if (cached && cached.exportedSymbols) {
+                symbols = cached.exportedSymbols;
+                tokens = cached.stats.estimatedTokens;
+                lines = cached.stats.lines;
+              } else {
+                try {
+                  const content = fs.readFileSync(fullPath, 'utf-8');
+                  lines = content.split('\n').length;
+                  tokens = Math.ceil(content.length / 4);
+                  symbols = AstCache.extractExportedSymbols(content, path.extname(fullPath));
+                } catch {
+                  continue;
+                }
+              }
+
+              if (query) {
+                const matchPath = relPath.toLowerCase().includes(query);
+                const matchSymbol = symbols.some((s) => s.toLowerCase().includes(query));
+                if (!matchPath && !matchSymbol) {
+                  continue;
+                }
+              }
+
+              results.push({
+                filePath: relPath,
+                lines,
+                tokens,
+                symbols,
+              });
+
+              if (results.length >= limit) {
+                break;
+              }
+            }
+
+            const header =
+              `<!-- SMART CONTEXT PACKER: CODEBASE INDEX (Layer 1 Progressive Disclosure) -->\n` +
+              `Workspace: ${effectiveCwd}\n` +
+              `Matched: ${results.length} files${query ? ` (filter: "${query}")` : ''}\n\n`;
+
+            const entriesText = results
+              .map((r) => {
+                const symText =
+                  r.symbols.length > 0
+                    ? ` [exports: ${r.symbols.slice(0, 10).join(', ')}${r.symbols.length > 10 ? '...' : ''}]`
+                    : '';
+                return `- \`${r.filePath}\` (${r.lines} lines, ~${r.tokens} tokens)${symText}`;
+              })
+              .join('\n');
+
+            return {
+              jsonrpc: '2.0',
+              id,
+              result: {
+                content: [
+                  {
+                    type: 'text',
+                    text: header + entriesText,
+                  },
+                ],
+              },
+            };
+          }
+
           if (toolName === 'pack_context') {
             const targets = (args.targets as string[]) || [];
             const depth = typeof args.depth === 'number' ? args.depth : 2;
             const skeleton = Boolean(args.skeleton);
             const maxTokens = typeof args.maxTokens === 'number' ? args.maxTokens : undefined;
+            const blastRadius = Boolean(args.blastRadius);
+            const noCache = Boolean(args.noCache);
+            const includeMemory = args.includeMemory !== undefined ? Boolean(args.includeMemory) : true;
             const includeDiff = Boolean(args.includeDiff);
             const format: OutputFormat = args.format === 'xml' ? 'xml' : 'md';
             const effectiveCwd = resolveEffectiveCwd(targets, args.cwd as string | undefined);
@@ -259,6 +466,9 @@ export class McpServer {
               depth,
               skeleton,
               maxTokens,
+              blastRadius,
+              noCache,
+              includeMemory,
               diff: includeDiff,
               format,
               quiet: true,
@@ -281,6 +491,7 @@ export class McpServer {
           if (toolName === 'inspect_dependency_graph') {
             const targets = (args.targets as string[]) || [];
             const reverse = Boolean(args.reverse);
+            const blastRadius = Boolean(args.blastRadius);
             const effectiveCwd = resolveEffectiveCwd(targets, args.cwd as string | undefined);
 
             const packResult = await packContext({
@@ -288,6 +499,7 @@ export class McpServer {
               targets,
               reverse,
               treeOnly: true,
+              blastRadius,
               quiet: true,
             });
 
@@ -310,6 +522,9 @@ export class McpServer {
             const depth = typeof args.depth === 'number' ? args.depth : 2;
             const skeleton = Boolean(args.skeleton);
             const maxTokens = typeof args.maxTokens === 'number' ? args.maxTokens : undefined;
+            const blastRadius = Boolean(args.blastRadius);
+            const noCache = Boolean(args.noCache);
+            const includeMemory = args.includeMemory !== undefined ? Boolean(args.includeMemory) : true;
             const format: OutputFormat = args.format === 'xml' ? 'xml' : 'md';
             const effectiveCwd = resolveEffectiveCwd([], args.cwd as string | undefined);
 
@@ -337,6 +552,9 @@ export class McpServer {
               depth,
               skeleton,
               maxTokens,
+              blastRadius,
+              noCache,
+              includeMemory,
               diff: !stagedOnly,
               staged: stagedOnly,
               format,
@@ -351,6 +569,77 @@ export class McpServer {
                   {
                     type: 'text',
                     text: packResult.formattedPrompt,
+                  },
+                ],
+              },
+            };
+          }
+
+          if (toolName === 'save_project_memory') {
+            const effectiveCwd = resolveEffectiveCwd([], args.cwd as string | undefined);
+            const memoryManager = new ProjectMemoryManager(effectiveCwd);
+            const entry = memoryManager.add({
+              pattern: String(args.pattern),
+              content: String(args.content),
+              category: (args.category as any) || 'architecture',
+              tags: Array.isArray(args.tags) ? args.tags.map(String) : [],
+            });
+
+            return {
+              jsonrpc: '2.0',
+              id,
+              result: {
+                content: [
+                  {
+                    type: 'text',
+                    text: `✔ Stored memory [${entry.id}] (${entry.category.toUpperCase()}) linked to pattern "${entry.pattern}":\n"${entry.content}"`,
+                  },
+                ],
+              },
+            };
+          }
+
+          if (toolName === 'query_project_memory') {
+            const effectiveCwd = resolveEffectiveCwd([], args.cwd as string | undefined);
+            const memoryManager = new ProjectMemoryManager(effectiveCwd);
+            const results = memoryManager.query({
+              pattern: args.pattern ? String(args.pattern) : undefined,
+              query: args.query ? String(args.query) : undefined,
+              category: args.category ? (String(args.category) as any) : undefined,
+            });
+
+            if (results.length === 0) {
+              return {
+                jsonrpc: '2.0',
+                id,
+                result: {
+                  content: [
+                    {
+                      type: 'text',
+                      text: `No matching project memories found in .scp/memory.json for workspace: ${effectiveCwd}`,
+                    },
+                  ],
+                },
+              };
+            }
+
+            const text = results
+              .map(
+                (m) =>
+                  `- [${m.id}] **${m.category.toUpperCase()}** (\`${m.pattern}\`): ${m.content}${
+                    m.tags && m.tags.length > 0 ? ` [tags: ${m.tags.join(', ')}]` : ''
+                  }`
+              )
+              .join('\n');
+
+            return {
+              jsonrpc: '2.0',
+              id,
+              result: {
+                content: [
+                  {
+                    type: 'text',
+                    text: `<!-- SMART CONTEXT PACKER: PROJECT MEMORY -->\nFound ${results.length} memory note(s):\n\n${text}`,
                   },
                 ],
               },

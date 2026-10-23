@@ -178,6 +178,26 @@ export function renderTerminalSummary(
     );
   }
 
+  if (graph.blastRadius) {
+    const riskLevelColor =
+      graph.blastRadius.level === 'HIGH'
+        ? pc.red(pc.bold(graph.blastRadius.level))
+        : graph.blastRadius.level === 'MEDIUM'
+        ? pc.yellow(pc.bold(graph.blastRadius.level))
+        : pc.green(pc.bold(graph.blastRadius.level));
+    const blastMsg = `${riskLevelColor} (${graph.blastRadius.score}/10) | ${graph.blastRadius.impactedTests.length} tests`;
+    lines.push(
+      pc.cyan('│ ') + pad(pc.gray('Blast Radius:'), 22) + blastMsg + ' '.repeat(Math.max(1, 36 - `${graph.blastRadius.level} (${graph.blastRadius.score}/10) | ${graph.blastRadius.impactedTests.length} tests`.length)) + pc.cyan('│')
+    );
+  }
+
+  if (graph.memories && graph.memories.length > 0) {
+    const memMsg = `${graph.memories.length} notes linked`;
+    lines.push(
+      pc.cyan('│ ') + pad(pc.gray('Project Memory:'), 22) + pc.blue(memMsg) + ' '.repeat(Math.max(1, 36 - memMsg.length)) + pc.cyan('│')
+    );
+  }
+
   if (destination.file) {
     lines.push(
       pc.cyan('│ ') + pad(pc.gray('Output File:'), 22) + pc.blue(destination.file) + ' '.repeat(Math.max(1, 36 - destination.file.length)) + pc.cyan('│')

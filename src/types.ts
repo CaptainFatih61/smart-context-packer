@@ -1,5 +1,7 @@
 export type NodeType = 'target' | 'dependency';
 export type OutputFormat = 'md' | 'xml';
+export type RiskLevel = 'LOW' | 'MEDIUM' | 'HIGH';
+export type MemoryCategory = 'architecture' | 'gotcha' | 'convention' | 'bugfix';
 
 export interface FileStats {
   lines: number;
@@ -26,6 +28,8 @@ export interface DependencyNode {
   content: string;
   /** Per-node stats */
   stats: FileStats;
+  /** Top-level exported symbols for index search */
+  exportedSymbols?: string[];
 }
 
 export interface CircularWarning {
@@ -46,6 +50,58 @@ export interface DependencyGraph {
   missingDependencies: string[];
   /** Unified Git diff patch if diff/staged mode was enabled */
   gitDiffPatch?: string;
+  /** Blast-radius impact analysis if requested */
+  blastRadius?: BlastRadiusResult;
+  /** Linked project memories matched for this pack */
+  memories?: MemoryEntry[];
+}
+
+export interface BlastRadiusResult {
+  targets: string[];
+  callers: string[];
+  fanInCallers?: string[];
+  impactedTests: string[];
+  untestedTargets: string[];
+  riskScore: number;
+  score?: number;
+  riskLevel: RiskLevel;
+  level?: RiskLevel;
+  summary: string;
+}
+
+export interface MemoryEntry {
+  id: string;
+  pattern: string;
+  category: MemoryCategory;
+  content: string;
+  createdAt: string;
+  tags?: string[];
+}
+
+export interface ProjectMemory {
+  version: string;
+  memories: MemoryEntry[];
+}
+
+export interface CacheEntry {
+  hash: string;
+  mtimeMs: number;
+  rawImports: string[];
+  exportedSymbols: string[];
+  stats: FileStats;
+}
+
+export interface CacheStore {
+  version: string;
+  entries: Record<string, CacheEntry>;
+}
+
+export interface CodebaseIndexEntry {
+  filePath: string;
+  lines: number;
+  estimatedTokens: number;
+  exportedSymbols: string[];
+  hasTests: boolean;
 }
 
 export interface AnalyzerOptions {
@@ -71,6 +127,8 @@ export interface AnalyzerOptions {
   staged?: boolean;
   /** Maximum token budget. Automatically skeletonizes deeper dependencies until within budget */
   maxTokens?: number;
+  /** If true, bypasses and does not read from SHA-256 AST cache */
+  noCache?: boolean;
 }
 
 export interface TokenStats {
@@ -97,13 +155,21 @@ export interface FormatterOptions {
   includeStatsSummary?: boolean;
   /** Optional unified Git diff patch to append */
   gitDiffPatch?: string;
+  /** Optional blast-radius analysis to format */
+  blastRadius?: BlastRadiusResult;
+  /** Optional persistent project memories to inject */
+  memories?: MemoryEntry[];
 }
 
-export interface PackOptions extends AnalyzerOptions, FormatterOptions {
+export interface PackOptions extends AnalyzerOptions, Omit<FormatterOptions, 'blastRadius' | 'memories'> {
   targets?: string[];
   output?: string;
   copy?: boolean;
   quiet?: boolean;
+  /** If true, performs blast-radius analysis, test mapping, and risk scoring */
+  blastRadius?: boolean;
+  /** If false, disables automatic persistent project memory injection (default: true) */
+  includeMemory?: boolean;
 }
 
 export interface PackResult {
@@ -113,4 +179,10 @@ export interface PackResult {
   outputPath?: string;
   copiedToClipboard: boolean;
   gitDiffPatch?: string;
+  blastRadius?: BlastRadiusResult;
+  memories?: MemoryEntry[];
+  cacheStats?: {
+    hits: number;
+    misses: number;
+  };
 }

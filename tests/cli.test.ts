@@ -23,13 +23,18 @@ describe('CLI Execution (dist/cli.js)', () => {
     expect(stdout).toContain('--diff');
     expect(stdout).toContain('--mcp');
     expect(stdout).toContain('--max-tokens');
+    expect(stdout).toContain('--blast-radius');
+    expect(stdout).toContain('--no-cache');
+    expect(stdout).toContain('--clear-cache');
+    expect(stdout).toContain('--add-memory');
+    expect(stdout).toContain('--list-memory');
     expect(stdout).toContain('--init-agent');
     expect(stdout).toContain('--init-vscode');
   });
 
   it('outputs current version with --version', async () => {
     const { stdout } = await exec(`node "${cliPath}" --version`);
-    expect(stdout).toContain('1.3.0');
+    expect(stdout).toContain('2.0.0');
   });
 
   it('generates prompt to stdout using --stdout flag', async () => {
@@ -97,6 +102,49 @@ describe('CLI Execution (dist/cli.js)', () => {
       const { stdout } = await exec(`node "${cliPath}" --init-vscode`, { cwd: tempDir });
       expect(stdout).toContain('VS Code Tasks Configured Successfully');
       expect(fs.existsSync(path.join(tempDir, '.vscode/tasks.json'))).toBe(true);
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('runs with --blast-radius flag and outputs risk analysis', async () => {
+    const { stdout } = await exec(
+      `node "${cliPath}" src/index.ts --stdout --blast-radius`,
+      { cwd: sampleAppDir }
+    );
+
+    expect(stdout).toContain('💥 Blast-Radius & Impact Analysis');
+    expect(stdout).toContain('Risk Level');
+  });
+
+  it('clears AST cache with --clear-cache flag', async () => {
+    const tempDir = path.join(os.tmpdir(), `scp_cli_cache_${Date.now()}`);
+    fs.mkdirSync(tempDir, { recursive: true });
+
+    try {
+      const { stdout } = await exec(`node "${cliPath}" --clear-cache`, { cwd: tempDir });
+      expect(stdout).toContain('AST Cache cleared successfully');
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('saves and lists persistent project memory via CLI flags', async () => {
+    const tempDir = path.join(os.tmpdir(), `scp_cli_mem_${Date.now()}`);
+    fs.mkdirSync(tempDir, { recursive: true });
+
+    try {
+      // Add memory
+      const addRes = await exec(
+        `node "${cliPath}" --add-memory "src/index.ts:Always check token budget"`,
+        { cwd: tempDir }
+      );
+      expect(addRes.stdout).toContain('Project memory saved');
+
+      // List memory
+      const listRes = await exec(`node "${cliPath}" --list-memory`, { cwd: tempDir });
+      expect(listRes.stdout).toContain('Persistent Project Memories');
+      expect(listRes.stdout).toContain('Always check token budget');
     } finally {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }

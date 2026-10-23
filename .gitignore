@@ -6,3 +6,5 @@ Thumbs.db
 coverage/
 .context-pack.md
 *.local
+.scp/cache.json
+**/.scp/cache.json

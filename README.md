@@ -12,17 +12,17 @@
 [![Tested with Vitest](https://img.shields.io/badge/Tested%20with-Vitest-729B1B.svg)](https://vitest.dev/)
 [![OpenAI OSS Grant](https://img.shields.io/badge/OpenAI%20OSS%20Grant-Candidate-412991.svg)](https://openai.com/)
 
-[![npm version](https://img.shields.io/badge/version-1.3.0-blue.svg)](package.json)
+[![npm version](https://img.shields.io/badge/version-2.0.0-blue.svg)](package.json)
 [![MCP: Stdio Protocol](https://img.shields.io/badge/MCP-JSON--RPC%202.0-brightgreen.svg)](https://modelcontextprotocol.io/)
 
 [Quickstart](#-quickstart) •
 [Features](#-key-features) •
-[Token-Budget Optimizer](#-auto-token-budget-optimizer-v130) •
-[Agent Rule Generator](#-automatic-background-agent-rule-generator-v130) •
-[Git Diff Resolver](#-git-diff--working-tree-resolver-v120) •
-[Smart Prisma Extractor](#-smart-prisma-schema-model-extractor-v120) •
-[MCP Stdio Server](#-model-context-protocol-mcp-server-v130) •
-[VS Code Tasks](#-vs-code--ai-ide-tasks-generator-v120) •
+[OSS Architecture Comparison](#-how-scp-v20-compares-to-the-best-oss-tools) •
+[Blast-Radius Analysis](#-blast-radius--impacted-test-analyzer-v200) •
+[Incremental AST Cache](#-incremental-sha-256-ast-cache-v200) •
+[Persistent Project Memory](#-file-linked-persistent-project-memory-v200) •
+[3-Layer Progressive MCP](#-3-layer-progressive-disclosure-mcp-engine-v200) •
+[Token Budget Optimizer](#-auto-token-budget-optimizer-v130) •
 [CLI Usage](#-cli-usage--flags) •
 [Programmatic API](#-programmatic-library-api)
 
@@ -37,9 +37,25 @@ When developing with AI assistants (ChatGPT, Claude, Gemini, Cursor, Copilot), d
 1. **The "Full Repository Dump" Trap:** Tools dump the entire codebase into a 90k+ token mega-prompt. The AI loses focus on the real task, exceeds context budgets, racks up enormous API bills, and gets confused by irrelevant boilerplate.
 2. **The "Isolated File" Trap:** The developer copies a single file. The AI immediately hallucinates missing function implementations, invents nonexistent interfaces, and generates code that breaks workspace imports.
 
-### The Solution: `smart-context-packer` (`scp`)
+### The Solution: `smart-context-packer` (`scp` v2.0)
 
 `scp` takes your target entry file(s), analyzes their directed dependency graph (imports, requires, tsconfig aliases, and framework script manifests), redacts sensitive credentials, and packages **ONLY the target files and their direct/transitive local dependencies** into a clean, token-counted prompt equipped with an AI pre-flight directive header.
+
+In **v2.0**, `smart-context-packer` synthesizes the architectural breakthroughs of top developer tools (`code-review-graph`, `claude-mem`, `mem0`, and `get-shit-done`) into a single, zero-bloat TypeScript engine with **zero heavy runtime dependencies** (no Python, no Bun, no ChromaDB, no SQLite).
+
+---
+
+## 🏆 How `scp v2.0` Compares to the Best OSS Tools
+
+| Capability / Architecture | `code-review-graph` | `claude-mem` | `mem0` | `get-shit-done` | **`smart-context-packer` v2.0** |
+| :--- | :---: | :---: | :---: | :---: | :---: |
+| **Incremental SHA-256 AST Caching** | ✅ | ❌ | ❌ | ❌ | **✅ (`.scp/cache.json`, sub-millisecond)** |
+| **Blast-Radius & Test Impact Risk Scoring** | ✅ | ❌ | ❌ | ❌ | **✅ (Reverse graph + test map + 0-10 risk score)** |
+| **3-Layer Progressive MCP Disclosure** | ❌ | ✅ | ❌ | ❌ | **✅ (L1: Index ~50t → L2: Graph → L3: Pack)** |
+| **File-Linked Persistent Project Memory** | ❌ | ❌ | ✅ | ❌ | **✅ (Git-friendly `.scp/memory.json`)** |
+| **Context-Rot Prevention (Task Slicing)** | ❌ | ❌ | ❌ | ✅ | **✅ (Auto-budget optimizer + XML/MD directives)** |
+| **Runtime & Dependency Footprint** | Heavy Python / ChromaDB | Bun / SQLite | Vector DB / Python | Node | **⚡ Pure Node.js / TS (Zero Bloat / Zero C++ DBs)** |
+| **Multi-Language AST (TS/JS/Vue/Lua/Prisma)**| Partial | Partial | None | Markdown | **✅ First-Class Native Support** |
 
 ---
 
@@ -185,8 +201,128 @@ One-command setup of `.vscode/tasks.json` with three Command Palette tasks for i
 ### 9. 🎯 Auto Token-Budget Optimizer (`--max-tokens`)
 Automatically monitors the total estimated token count. If the pack exceeds your specified budget, it progressively converts deep dependencies into skeleton signatures (from deepest depth down to depth 1, keeping depth 0 targets intact) to guarantee fitting within LLM window limits.
 
-### 10. 🤖 Automatic Background Agent Rule Generator (`--init-agent`)
-One-command generator for `.agent/rules/smart-context-packer.md` and `.cursorrules`. Directs AI coding assistants (Cursor, Antigravity, Copilot, Claude Desktop) to autonomously invoke `smart-context-packer` MCP tools in the background before modifying files.
+### 10. 💥 Blast-Radius & Impacted Test Analyzer (`-b, --blast-radius`)
+Performs reverse fan-in analysis to identify every workspace file calling your targets, locates all associated unit test files (`*.test.ts`, `*.spec.ts`, `tests/**`), warns of untested modifications, and computes a 0.0-10.0 Risk Score (`LOW`, `MEDIUM`, `HIGH`).
+
+### 11. ⚡ Incremental SHA-256 AST Cache (`.scp/cache.json`)
+Caches parsed AST dependencies, exported symbols, and token metrics keyed by content SHA-256 hash and file mtime. Subsequent runs on large repos execute in milliseconds without any external databases.
+
+### 12. 🧠 File-Linked Persistent Project Memory (`.scp/memory.json`)
+Store git-friendly architectural decisions, bug gotchas, and invariants linked to file globs. Whenever matching files are packed or edited, their linked memories are automatically injected into the AI context!
+
+### 13. 🌐 3-Layer Progressive Disclosure MCP Suite
+Enables AI coding agents to interact with massive codebases progressively:
+- **Layer 1**: `search_codebase_index` (~50 tokens per file summary with exported symbols)
+- **Layer 2**: `inspect_dependency_graph` (visual tree, dependency map, circular checks, blast radius)
+- **Layer 3**: `pack_context` & `pack_git_diff` (complete or skeletonized source code + diffs + memories)
+- **Memory Tools**: `save_project_memory` & `query_project_memory` for persistent cross-session knowledge.
+
+---
+
+## 💥 Blast-Radius & Impacted Test Analyzer (v2.0.0)
+
+Inspired by `tirth8205/code-review-graph`, `scp` v2.0 eliminates fear of unexpected regression breakage during AI refactorings:
+
+```bash
+# Analyze impact, callers, and tests when editing auth.ts:
+scp src/auth.ts -b -c
+
+# Combine with git diff to score the risk of your uncommitted changes:
+scp --diff -b -c
+```
+
+### Risk Scoring Formula & Levels:
+- **`LOW` (0.0 - 3.5)**: Isolated changes or comprehensive test suite coverage with limited callers.
+- **`MEDIUM` (3.6 - 6.9)**: Moderate fan-in dependencies (1-3 callers) or untested utility modules.
+- **`HIGH` (7.0 - 10.0)**: Critical shared core modules with 4+ callers or zero matching test suites.
+
+### AI Context Injection:
+When `-b` is enabled, `scp` injects a dedicated directive block into the AI prompt:
+```markdown
+## 💥 Blast-Radius & Impact Analysis
+- **Target Files**: `src/services/auth.ts`
+- **Risk Level**: `MEDIUM` (5.2/10)
+- **Summary**: ⚠️ MODERATE RISK: 2 callers impacted. 1 test file covers this scope.
+- **Impacted Callers (Fan-in)**:
+  - `src/controllers/login.ts`
+  - `src/server.ts`
+- **Impacted Unit Tests**:
+  - `tests/auth.test.ts`
+```
+
+---
+
+## ⚡ Incremental SHA-256 AST Cache (v2.0.0)
+
+Parsing hundreds of TypeScript and Vue files repeatedly slows down interactive developer loops. `scp` v2.0 introduces a zero-dependency local disk cache stored in `.scp/cache.json`:
+
+```bash
+# Normal runs use the incremental cache automatically:
+scp src/index.ts -c
+
+# Bypass the cache:
+scp src/index.ts --no-cache -c
+
+# Purge the local cache:
+scp --clear-cache
+```
+
+- **Two-tier validation**: First validates file `mtimeMs` and `fileSize` (instant sub-millisecond check). If modified, computes `crypto.createHash('sha256')` to check if contents actually changed.
+- **Stored metadata**: Caches raw imports, line/token stats, and exported symbol lists (`exportedSymbols`).
+- **Zero Bloat**: No SQLite binaries, no native C++ bindings, no ChromaDB. Pure Node.js JSON storage.
+
+---
+
+## 🧠 File-Linked Persistent Project Memory (v2.0.0)
+
+Inspired by `mem0`, `scp` v2.0 provides cross-session architectural retention stored directly in `.scp/memory.json` (git-tracked so your entire team and AI agents benefit):
+
+```bash
+# Save an architectural decision or gotcha linked to a file pattern:
+scp --add-memory "src/mcp.ts:Never log to stdout in stdio MCP mode to prevent JSON-RPC corruption"
+scp --add-memory "src/auth/**:Always verify JWT expiration against UTC server time"
+
+# List all stored project memories:
+scp --list-memory
+```
+
+### Automatic Context Injection:
+Whenever files matching pattern globs are packed (either via CLI `scp`, VS Code tasks, or MCP tool calls), their linked memories are **automatically attached** to the AI prompt:
+
+```markdown
+## 🧠 Persistent Project Memory (.scp/memory.json)
+- **GOTCHA** (`src/mcp.ts`): Never log to stdout in stdio MCP mode to prevent JSON-RPC corruption
+```
+
+---
+
+## 🌐 3-Layer Progressive Disclosure MCP Engine (v2.0.0)
+
+Inspired by `claude-mem`'s multi-tier context pattern, `scp` v2.0 provides 6 native MCP tools organized into 3 progressive tiers so AI coding agents never waste context:
+
+```text
+┌────────────────────────────────────────────────────────┐
+│  Layer 1: search_codebase_index                        │
+│  ~30-50 tokens per file: path + size + exportedSymbols │
+└───────────────────────┬────────────────────────────────┘
+                        ▼
+┌────────────────────────────────────────────────────────┐
+│  Layer 2: inspect_dependency_graph                     │
+│  ASCII Tree + Dependency Map + Circulars + Blast Radius│
+└───────────────────────┬────────────────────────────────┘
+                        ▼
+┌────────────────────────────────────────────────────────┐
+│  Layer 3: pack_context & pack_git_diff                 │
+│  Full/Skeleton Source Code + Mapped Tests + Memories   │
+└────────────────────────────────────────────────────────┘
+```
+
+1. **`search_codebase_index` (Layer 1)**: Cheaply search workspace files and exported symbols without loading file bodies.
+2. **`inspect_dependency_graph` (Layer 2)**: Inspect architecture, depth hierarchy, and circular warnings.
+3. **`pack_context` (Layer 3)**: Package full or skeletonized file bodies with token budgets.
+4. **`pack_git_diff`**: Review uncommitted modified or staged Git changes.
+5. **`save_project_memory`**: Persist decisions and gotchas into `.scp/memory.json`.
+6. **`query_project_memory`**: Search and retrieve architectural rules.
 
 ---
 
@@ -390,7 +526,12 @@ scp [options] [targets...]
 |:---|:---:|:---|:---:|
 | `--diff` | | Discover all uncommitted modified/untracked files as targets & include diff patch | `false` |
 | `--staged` | | Discover staged files as targets & include staged diff patch | `false` |
+| `--blast-radius` | `-b` | Trace callers, identify unit tests, and compute 0-10 Risk Score | `false` |
 | `--max-tokens <number>` | `-m` | Auto-skeletonize dependencies from deepest depth to fit token budget | |
+| `--no-cache` | | Disable SHA-256 AST local disk caching | `false` |
+| `--clear-cache` | | Purge local `.scp/cache.json` AST cache | `false` |
+| `--add-memory <pattern:note>` | | Save persistent project memory note linked to file pattern | |
+| `--list-memory` | | List all persistent project memories stored in `.scp/memory.json` | `false` |
 | `--init-agent` | | Generate `.agent/rules/smart-context-packer.md` & `.cursorrules` for AI agents | `false` |
 | `--init-vscode` | | Generate or update `.vscode/tasks.json` with ready-to-run IDE tasks | `false` |
 | `--mcp` | | Start native JSON-RPC 2.0 Model Context Protocol (MCP) stdio server | `false` |
@@ -509,6 +650,10 @@ for (const [filePath, node] of graph.nodes) {
 - [x] Auto Token-Budget Optimizer (`--max-tokens`) with smart depth-descending skeletonization
 - [x] Background Agent Rule Generator (`--init-agent` for Cursor & Antigravity IDE)
 - [x] Autonomous `pack_git_diff` MCP tool for working tree and staged diff inspection
+- [x] Incremental SHA-256 AST local disk cache (`src/cache.ts`)
+- [x] Blast-radius reverse caller & test impact risk scoring (`src/blast-radius.ts`)
+- [x] File-linked persistent project memory (`src/memory.ts`)
+- [x] 3-Layer progressive disclosure MCP tool suite (`search_codebase_index`, `inspect_dependency_graph`, `pack_context`, `save_project_memory`, `query_project_memory`)
 - [ ] Python AST dependency analyzer (`import`, `from ... import`)
 - [ ] Rust module resolver (`mod`, `use crate::*`)
 - [ ] Interactive VS Code extension with one-click "Pack Context" context menu

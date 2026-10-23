@@ -5,8 +5,9 @@ import type { PackOptions, PackResult } from './types.js';
 import { DependencyAnalyzer } from './analyzer.js';
 import { aggregateTokenStats } from './tokens.js';
 import { ContextFormatter } from './formatter.js';
-
 import { getGitModifiedFiles, getGitDiffPatch } from './git.js';
+import { calculateBlastRadius } from './blast-radius.js';
+import { ProjectMemoryManager } from './memory.js';
 
 export * from './types.js';
 export * from './analyzer.js';
@@ -18,6 +19,9 @@ export * from './prisma.js';
 export * from './mcp.js';
 export * from './ide.js';
 export * from './agent-rules.js';
+export * from './cache.js';
+export * from './blast-radius.js';
+export * from './memory.js';
 
 /**
  * Main programmatic API to pack dependencies and generate AI context prompts.
@@ -55,12 +59,29 @@ export async function packContext(options: PackOptions): Promise<PackResult> {
     diff: options.diff,
     staged: options.staged,
     maxTokens: options.maxTokens,
+    noCache: options.noCache,
   });
 
   const graph = await analyzer.analyze(targets);
   if (gitDiffPatch) {
     graph.gitDiffPatch = gitDiffPatch;
   }
+
+  // Calculate blast radius if requested
+  if (options.blastRadius) {
+    graph.blastRadius = await calculateBlastRadius(targets, graph, cwd);
+  }
+
+  // Inject persistent project memories unless explicitly disabled
+  if (options.includeMemory !== false) {
+    const memoryManager = new ProjectMemoryManager(cwd);
+    const relevantFiles = Array.from(graph.nodes.keys());
+    const memories = memoryManager.getRelevantMemories(relevantFiles);
+    if (memories.length > 0) {
+      graph.memories = memories;
+    }
+  }
+
   const stats = aggregateTokenStats(graph, options.maxTokens);
 
   const formatter = new ContextFormatter({
@@ -101,5 +122,8 @@ export async function packContext(options: PackOptions): Promise<PackResult> {
     outputPath,
     copiedToClipboard,
     gitDiffPatch,
+    blastRadius: graph.blastRadius,
+    memories: graph.memories,
+    cacheStats: analyzer.getCacheStats(),
   };
 }
