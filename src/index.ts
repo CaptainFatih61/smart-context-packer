@@ -15,6 +15,7 @@ export * from './formatter.js';
 export * from './tokens.js';
 export * from './git.js';
 export * from './prisma.js';
+export * from './mcp.js';
 
 /**
  * Main programmatic API to pack dependencies and generate AI context prompts.
