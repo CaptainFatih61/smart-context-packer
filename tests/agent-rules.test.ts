@@ -16,43 +16,64 @@ describe('Automatic Background Agent Rule Generator', () => {
     fs.rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it('creates universal agent presets across Cursor, Claude, Copilot, Windsurf, and Antigravity', () => {
+  it('creates universal agent presets across Cursor, Claude, Copilot, Windsurf, OpenCode, Codex, Continue, Zed, Cline, Aider, and JetBrains', () => {
     const res = initAgentRules(tempDir, 'all');
 
     expect(res.agentRulesCreated).toBe(true);
     expect(res.cursorRulesCreated).toBe(true);
-    expect(res.created).toHaveLength(5);
+    expect(res.created.length).toBeGreaterThanOrEqual(12);
     expect(res.created).toContain('.agent/rules/smart-context-packer.md');
     expect(res.created).toContain('.cursorrules');
     expect(res.created).toContain('CLAUDE.md');
     expect(res.created).toContain('.github/copilot-instructions.md');
     expect(res.created).toContain('.windsurfrules');
+    expect(res.created).toContain('.opencode/instructions.md');
+    expect(res.created).toContain('CODEX.md');
+    expect(res.created).toContain('.continue/config.json');
+    expect(res.created).toContain('.zed/settings.json');
+    expect(res.created).toContain('.clinerules');
+    expect(res.created).toContain('.roomodes');
+    expect(res.created).toContain('CONVENTIONS.md');
+    expect(res.created).toContain('.aider.conf.yml');
+    expect(res.created).toContain('.idea/ai/instructions.md');
 
     const agentFile = path.join(tempDir, '.agent/rules/smart-context-packer.md');
     const cursorFile = path.join(tempDir, '.cursorrules');
     const claudeFile = path.join(tempDir, 'CLAUDE.md');
-    const copilotFile = path.join(tempDir, '.github/copilot-instructions.md');
-    const windsurfFile = path.join(tempDir, '.windsurfrules');
+    const codexFile = path.join(tempDir, 'CODEX.md');
+    const continueFile = path.join(tempDir, '.continue/config.json');
+    const zedFile = path.join(tempDir, '.zed/settings.json');
 
     expect(fs.existsSync(agentFile)).toBe(true);
     expect(fs.existsSync(cursorFile)).toBe(true);
     expect(fs.existsSync(claudeFile)).toBe(true);
-    expect(fs.existsSync(copilotFile)).toBe(true);
-    expect(fs.existsSync(windsurfFile)).toBe(true);
+    expect(fs.existsSync(codexFile)).toBe(true);
+    expect(fs.existsSync(continueFile)).toBe(true);
+    expect(fs.existsSync(zedFile)).toBe(true);
 
-    const claudeContent = fs.readFileSync(claudeFile, 'utf-8');
-    expect(claudeContent).toContain('Project Intelligence with Smart Context Packer');
+    const continueJson = JSON.parse(fs.readFileSync(continueFile, 'utf-8'));
+    expect(continueJson.experimental.modelContextProtocolServers).toBeDefined();
+
+    const zedJson = JSON.parse(fs.readFileSync(zedFile, 'utf-8'));
+    expect(zedJson.context_servers['smart-context-packer']).toBeDefined();
   });
 
-  it('generates specific targeted presets when requested', () => {
-    const resClaude = initAgentRules(tempDir, 'claude');
-    expect(resClaude.created).toContain('CLAUDE.md');
-    expect(fs.existsSync(path.join(tempDir, 'CLAUDE.md'))).toBe(true);
+  it('generates specific targeted presets when requested (continue, zed, aider, codex)', () => {
+    const resContinue = initAgentRules(tempDir, 'continue');
+    expect(resContinue.created).toContain('.continue/config.json');
+    expect(fs.existsSync(path.join(tempDir, '.continue/config.json'))).toBe(true);
     expect(fs.existsSync(path.join(tempDir, '.cursorrules'))).toBe(false);
 
-    const resCursor = initAgentRules(tempDir, 'cursor');
-    expect(resCursor.created).toContain('.cursorrules');
-    expect(fs.existsSync(path.join(tempDir, '.cursorrules'))).toBe(true);
+    const resZed = initAgentRules(tempDir, 'zed');
+    expect(resZed.created).toContain('.zed/settings.json');
+    expect(fs.existsSync(path.join(tempDir, '.zed/settings.json'))).toBe(true);
+
+    const resAider = initAgentRules(tempDir, 'aider');
+    expect(resAider.created).toContain('.aider.conf.yml');
+    expect(resAider.created).toContain('CONVENTIONS.md');
+
+    const resCodex = initAgentRules(tempDir, 'codex');
+    expect(resCodex.created).toContain('CODEX.md');
   });
 
   it('appends directives to existing .cursorrules without duplicating', () => {

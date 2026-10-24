@@ -65,9 +65,103 @@ export function extractExportedSymbols(content: string, ext: string): string[] {
     return Array.from(rustSymbols);
   }
 
-  // For TS / JS / Vue
+  // For C#
+  if (normalizedExt === '.cs') {
+    const csSymbols = new Set<string>();
+    const csRegex =
+      /^\s*(?:public|internal)\s+(?:static\s+|abstract\s+|sealed\s+|partial\s+)*(?:class|interface|struct|enum|record)\s+([a-zA-Z0-9_]+)/gm;
+    let match: RegExpExecArray | null;
+    while ((match = csRegex.exec(content)) !== null) {
+      if (match[1]) csSymbols.add(match[1]);
+    }
+    return Array.from(csSymbols);
+  }
+
+  // For Java & Kotlin
+  if (normalizedExt === '.java' || normalizedExt === '.kt') {
+    const jvmSymbols = new Set<string>();
+    const jvmRegex =
+      /^\s*(?:public\s+)?(?:abstract\s+|final\s+|sealed\s+)*(?:class|interface|enum|record)\s+([a-zA-Z0-9_]+)/gm;
+    let match: RegExpExecArray | null;
+    while ((match = jvmRegex.exec(content)) !== null) {
+      if (match[1]) jvmSymbols.add(match[1]);
+    }
+    if (normalizedExt === '.kt') {
+      const ktFunRegex = /^\s*(?:fun)\s+([a-zA-Z0-9_]+)/gm;
+      while ((match = ktFunRegex.exec(content)) !== null) {
+        if (match[1]) jvmSymbols.add(match[1]);
+      }
+    }
+    return Array.from(jvmSymbols);
+  }
+
+  // For C / C++
+  if (['.c', '.cpp', '.cc', '.h', '.hpp'].includes(normalizedExt)) {
+    const cppSymbols = new Set<string>();
+    const structRegex = /^\s*(?:class|struct|enum(?:\s+class)?|union)\s+([a-zA-Z0-9_]+)/gm;
+    let match: RegExpExecArray | null;
+    while ((match = structRegex.exec(content)) !== null) {
+      if (match[1]) cppSymbols.add(match[1]);
+    }
+    return Array.from(cppSymbols);
+  }
+
+  // For PHP
+  if (normalizedExt === '.php') {
+    const phpSymbols = new Set<string>();
+    const phpRegex = /^\s*(?:abstract\s+|final\s+)?(?:class|interface|trait|enum)\s+([a-zA-Z0-9_]+)/gm;
+    let match: RegExpExecArray | null;
+    while ((match = phpRegex.exec(content)) !== null) {
+      if (match[1]) phpSymbols.add(match[1]);
+    }
+    return Array.from(phpSymbols);
+  }
+
+  // For Dart
+  if (normalizedExt === '.dart') {
+    const dartSymbols = new Set<string>();
+    const dartRegex = /^\s*(?:abstract\s+)?(?:class|mixin|enum|extension)\s+([a-zA-Z0-9_]+)/gm;
+    let match: RegExpExecArray | null;
+    while ((match = dartRegex.exec(content)) !== null) {
+      if (match[1]) dartSymbols.add(match[1]);
+    }
+    return Array.from(dartSymbols);
+  }
+
+  // For Swift
+  if (normalizedExt === '.swift') {
+    const swiftSymbols = new Set<string>();
+    const swiftRegex =
+      /^\s*(?:public\s+|open\s+)?(?:final\s+)?(?:class|struct|protocol|enum|actor)\s+([a-zA-Z0-9_]+)/gm;
+    let match: RegExpExecArray | null;
+    while ((match = swiftRegex.exec(content)) !== null) {
+      if (match[1]) swiftSymbols.add(match[1]);
+    }
+    return Array.from(swiftSymbols);
+  }
+
+  // For Ruby
+  if (normalizedExt === '.rb') {
+    const rbSymbols = new Set<string>();
+    const rbRegex = /^\s*(?:class|module|def)\s+([a-zA-Z0-9_!?.]+)/gm;
+    let match: RegExpExecArray | null;
+    while ((match = rbRegex.exec(content)) !== null) {
+      if (match[1]) rbSymbols.add(match[1]);
+    }
+    return Array.from(rbSymbols);
+  }
+
+  // For TS / JS / Vue / Svelte
   const symbols = new Set<string>();
-  const lines = content.split(/\r?\n/);
+  let codeToScan = content;
+  if (normalizedExt === '.svelte') {
+    const scriptMatch = content.match(/<script\b[^>]*>([\s\S]*?)<\/script>/i);
+    if (scriptMatch) {
+      codeToScan = scriptMatch[1]!;
+    }
+  }
+
+  const lines = codeToScan.split(/\r?\n/);
 
   for (const line of lines) {
     const trimmed = line.trim();

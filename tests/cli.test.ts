@@ -39,7 +39,7 @@ describe('CLI Execution (dist/cli.js)', () => {
 
   it('outputs current version with --version', async () => {
     const { stdout } = await exec(`node "${cliPath}" --version`);
-    expect(stdout).toContain('2.2.0');
+    expect(stdout).toContain('2.3.0');
   });
 
   it('generates prompt to stdout using --stdout flag', async () => {

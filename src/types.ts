@@ -224,3 +224,40 @@ export interface PackResult {
     misses: number;
   };
 }
+
+export interface SymbolDefinitionResult {
+  filePath: string;
+  symbolName: string;
+  found: boolean;
+  startLine?: number;
+  endLine?: number;
+  totalLines?: number;
+  estimatedTokens?: number;
+  signature?: string;
+  codeSnippet?: string;
+}
+
+export interface ImpactedTestsResult {
+  targets: string[];
+  impactedTests: string[];
+  suggestedTestCommand: string;
+  callerCount: number;
+  riskLevel: RiskLevel;
+  riskScore: number;
+  summary: string;
+}
+
+export interface ContextLeakAuditResult {
+  safe: boolean;
+  leaksFound: number;
+  details: Array<{
+    type: string;
+    description: string;
+    line?: number;
+    sample?: string;
+  }>;
+  totalTokens: number;
+  lineCount: number;
+  oversizedWarning: boolean;
+  recommendations: string[];
+}

@@ -149,8 +149,8 @@ export function extractSkeleton(content: string, ext: string): string {
 
   const normalizedExt = ext.toLowerCase();
 
-  // Vue SFC handling: keep scripts, collapse template & style
-  if (normalizedExt === '.vue') {
+  // Vue & Svelte SFC handling: keep scripts, collapse template & style
+  if (normalizedExt === '.vue' || normalizedExt === '.svelte') {
     let stripped = content;
     stripped = stripped.replace(
       /<template[\s\S]*?<\/template>/gi,
@@ -177,8 +177,49 @@ export function extractSkeleton(content: string, ext: string): string {
     return extractPythonSkeleton(content);
   }
 
-  // TS, JS, TSX, JSX, Go (.go), Rust (.rs)
+  // Ruby handling
+  if (normalizedExt === '.rb') {
+    return extractRubySkeleton(content);
+  }
+
+  // TS, JS, TSX, JSX, Go, Rust, C#, Java, Kotlin, C/C++, PHP, Dart, Swift
   return extractCodeSkeleton(content);
+}
+
+/**
+ * Strips method bodies for Ruby code while preserving class/module definitions.
+ */
+function extractRubySkeleton(code: string): string {
+  const lines = code.split(/\r?\n/);
+  const result: string[] = [];
+  let inDef = false;
+  let defIndent = 0;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
+    const trimmed = line.trim();
+    const indent = line.search(/\S|$/);
+
+    if (inDef) {
+      if (trimmed === 'end' && indent === defIndent) {
+        result.push(`${' '.repeat(indent + 2)}# [Implementation omitted for token efficiency]`);
+        result.push(line);
+        inDef = false;
+        continue;
+      }
+      continue;
+    }
+
+    if (/^def\s+[a-zA-Z0-9_!?.]+/.test(trimmed)) {
+      result.push(line);
+      inDef = true;
+      defIndent = indent;
+      continue;
+    }
+
+    result.push(line);
+  }
+  return result.join('\n');
 }
 
 /**
@@ -218,7 +259,7 @@ function extractPythonSkeleton(code: string): string {
 }
 
 /**
- * Strips implementation bodies for TS/JS, Go, and Rust code.
+ * Strips implementation bodies for TS/JS, Go, Rust, C#, Java, Kotlin, C/C++, PHP, Dart, and Swift code.
  */
 function extractCodeSkeleton(code: string): string {
   const lines = code.split(/\r?\n/);
@@ -243,6 +284,9 @@ function extractCodeSkeleton(code: string): string {
       trimmed.startsWith('type ') ||
       trimmed.startsWith('interface ') ||
       trimmed.startsWith('use ') ||
+      trimmed.startsWith('using ') ||
+      trimmed.startsWith('package ') ||
+      trimmed.startsWith('#include ') ||
       trimmed.startsWith('mod ')
     ) {
       if (!inFunctionBody) {
@@ -251,16 +295,20 @@ function extractCodeSkeleton(code: string): string {
       }
     }
 
-    // Check for start of a function or method body across TS/JS, Go, Rust
+    // Check for start of a function or method body across C-style languages
     const isFunctionHeader =
       /^(?:export\s+)?(?:async\s+)?(?:function\b|const\s+[a-zA-Z0-9_$]+\s*=\s*(?:async\s*)?\([^)]*\)\s*(?::\s*[^=]+)?\s*=>)/.test(
+        trimmed
+      ) ||
+      /^(?:(?:public|private|protected|internal|static|async|override|readonly|virtual|final|abstract|suspend)\s+)+[a-zA-Z0-9_<>[\]?]+\s+[a-zA-Z0-9_$]+\s*\([^)]*\)/.test(
         trimmed
       ) ||
       /^(?:(?:public|private|protected|static|async|override|readonly)\s+)+[a-zA-Z0-9_$]+\s*\([^)]*\)/.test(
         trimmed
       ) ||
-      /^(?:func\s+(?:\([^)]+\)\s+)?[a-zA-Z0-9_]+\s*\([^)]*\))/.test(trimmed) || // Go func
-      /^(?:pub(?:\([^)]+\))?\s+)?(?:async\s+)?fn\s+[a-zA-Z0-9_]+/.test(trimmed); // Rust fn
+      /^(?:func\s+(?:\([^)]+\)\s+)?[a-zA-Z0-9_]+\s*\([^)]*\))/.test(trimmed) || // Go / Swift func
+      /^(?:pub(?:\([^)]+\))?\s+)?(?:async\s+)?fn\s+[a-zA-Z0-9_]+/.test(trimmed) || // Rust fn
+      /^(?:fun\s+[a-zA-Z0-9_]+)/.test(trimmed); // Kotlin fun
 
     if (!inFunctionBody && isFunctionHeader && line.includes('{')) {
       inFunctionBody = true;

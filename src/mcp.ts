@@ -82,6 +82,244 @@ import { DependencyAnalyzer } from './analyzer.js';
 import { TaskManager } from './task.js';
 import { DependencyManifestResolver } from './dependencies.js';
 import { sandboxOutput } from './sandbox.js';
+import { calculateBlastRadius } from './blast-radius.js';
+
+/**
+ * Surgically extracts the exact lines of a symbol declaration and body from source code.
+ */
+export function extractSymbolFromCode(
+  content: string,
+  symbolName: string,
+  ext: string
+): {
+  found: boolean;
+  startLine?: number;
+  endLine?: number;
+  signature?: string;
+  codeSnippet?: string;
+  estimatedTokens?: number;
+} {
+  const lines = content.split(/\r?\n/);
+  const normalizedExt = ext.toLowerCase();
+
+  const escaped = symbolName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const declRegex = new RegExp(
+    `\\b(?:function\\*?|class|interface|type|enum|record|trait|struct|def|func|fun|var|const|let)\\s+${escaped}\\b|\\b${escaped}\\s*=\\s*(?:async\\s*)?(?:\\([^)]*\\)|function)|(?:public|private|protected|static|override|virtual|abstract|async)\\s+.*\\b${escaped}\\s*\\(`,
+    'i'
+  );
+
+  let startIdx = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (declRegex.test(lines[i]!)) {
+      startIdx = i;
+      break;
+    }
+  }
+
+  if (startIdx === -1) {
+    const fallbackRegex = new RegExp(`\\b${escaped}\\b`);
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]!;
+      if (fallbackRegex.test(line) && (line.includes('{') || line.includes(':') || line.includes('('))) {
+        startIdx = i;
+        break;
+      }
+    }
+  }
+
+  if (startIdx === -1) {
+    return { found: false };
+  }
+
+  const startLine = startIdx + 1;
+  const signature = lines[startIdx]!.trim();
+
+  // Python indent-based block
+  if (normalizedExt === '.py') {
+    const startIndent = lines[startIdx]!.search(/\S|$/);
+    let endIdx = startIdx;
+    for (let i = startIdx + 1; i < lines.length; i++) {
+      const line = lines[i]!;
+      if (!line.trim()) continue;
+      const curIndent = line.search(/\S|$/);
+      if (curIndent <= startIndent) {
+        break;
+      }
+      endIdx = i;
+    }
+    const snippet = lines.slice(startIdx, endIdx + 1).join('\n');
+    return {
+      found: true,
+      startLine,
+      endLine: endIdx + 1,
+      signature,
+      codeSnippet: snippet,
+      estimatedTokens: Math.ceil(snippet.length / 4),
+    };
+  }
+
+  // Ruby / Lua end-based block
+  if (normalizedExt === '.rb' || normalizedExt === '.lua') {
+    let depth = 0;
+    let endIdx = startIdx;
+    for (let i = startIdx; i < lines.length; i++) {
+      const trimmed = lines[i]!.trim();
+      if (/^(?:def|class|module|function|if|while|do)\b/.test(trimmed)) {
+        depth++;
+      }
+      if (/^end\b/.test(trimmed)) {
+        depth--;
+        if (depth <= 0) {
+          endIdx = i;
+          break;
+        }
+      }
+    }
+    const snippet = lines.slice(startIdx, endIdx + 1).join('\n');
+    return {
+      found: true,
+      startLine,
+      endLine: endIdx + 1,
+      signature,
+      codeSnippet: snippet,
+      estimatedTokens: Math.ceil(snippet.length / 4),
+    };
+  }
+
+  // Brace-delimited blocks (TS, JS, C#, Java, Go, Rust, C++, PHP, Dart, Swift)
+  let braceCount = 0;
+  let seenBrace = false;
+  let endIdx = startIdx;
+
+  for (let i = startIdx; i < lines.length; i++) {
+    const line = lines[i]!;
+    const opens = (line.match(/\{/g) || []).length;
+    const closes = (line.match(/\}/g) || []).length;
+
+    if (opens > 0) seenBrace = true;
+    braceCount += opens - closes;
+
+    if (seenBrace && braceCount <= 0) {
+      endIdx = i;
+      break;
+    }
+
+    if (!seenBrace && (line.trim().endsWith(';') || (i > startIdx && !line.startsWith(' ')))) {
+      endIdx = i;
+      break;
+    }
+  }
+
+  const snippet = lines.slice(startIdx, endIdx + 1).join('\n');
+  return {
+    found: true,
+    startLine,
+    endLine: endIdx + 1,
+    signature,
+    codeSnippet: snippet,
+    estimatedTokens: Math.ceil(snippet.length / 4),
+  };
+}
+
+/**
+ * Audits text content for credential leaks and token density warnings.
+ */
+export function auditContextContent(content: string): {
+  safe: boolean;
+  leaksFound: number;
+  details: Array<{ type: string; description: string; line?: number; sample?: string }>;
+  totalTokens: number;
+  lineCount: number;
+  oversizedWarning: boolean;
+  recommendations: string[];
+} {
+  const lines = content.split(/\r?\n/);
+  const lineCount = lines.length;
+  const totalTokens = Math.ceil(content.length / 4);
+  const details: Array<{ type: string; description: string; line?: number; sample?: string }> = [];
+
+  const leakRules: Array<{ type: string; regex: RegExp; description: string }> = [
+    {
+      type: 'OPENAI_API_KEY',
+      regex: /\bsk-[a-zA-Z0-9]{20,T3BlbkFJ[a-zA-Z0-9]{20,}\b|\bsk-proj-[a-zA-Z0-9_\-]{40,}\b/,
+      description: 'OpenAI API Secret Key',
+    },
+    {
+      type: 'ANTHROPIC_API_KEY',
+      regex: /\bsk-ant-[a-zA-Z0-9_\-]{30,}\b/,
+      description: 'Anthropic API Secret Key',
+    },
+    {
+      type: 'AWS_ACCESS_KEY',
+      regex: /\b(AKIA[0-9A-Z]{16})\b/,
+      description: 'AWS Access Key ID',
+    },
+    {
+      type: 'GITHUB_TOKEN',
+      regex: /\b(gh[pousr]_[a-zA-Z0-9]{36,255})\b/,
+      description: 'GitHub Personal/OAuth Access Token',
+    },
+    {
+      type: 'PRIVATE_KEY',
+      regex: /-----BEGIN\s+(?:RSA\s+)?PRIVATE\s+KEY-----/,
+      description: 'Asymmetric Private Encryption Key',
+    },
+    {
+      type: 'DATABASE_PASSWORD_URI',
+      regex: /(?:postgres|mysql|mongodb(?:\+srv)?):\/\/[^:\s]+:([^@\s]+)@/i,
+      description: 'Database connection string containing raw password',
+    },
+    {
+      type: 'JWT_BEARER_TOKEN',
+      regex: /\beyJ[a-zA-Z0-9_-]{10,}\.eyJ[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}\b/,
+      description: 'JSON Web Token (JWT)',
+    },
+  ];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
+    for (const rule of leakRules) {
+      const match = rule.regex.exec(line);
+      if (match) {
+        const fullMatch = match[0];
+        const masked = fullMatch.length > 8 ? `${fullMatch.slice(0, 4)}...${fullMatch.slice(-3)}` : '***';
+        details.push({
+          type: rule.type,
+          description: rule.description,
+          line: i + 1,
+          sample: masked,
+        });
+      }
+    }
+  }
+
+  const oversizedWarning = lineCount > 400 || totalTokens > 8000;
+  const recommendations: string[] = [];
+
+  if (details.length > 0) {
+    recommendations.push(
+      'Redact or remove hardcoded credentials before submitting this context to LLM APIs.'
+    );
+  }
+  if (oversizedWarning) {
+    recommendations.push(
+      `Context is large (${totalTokens} tokens, ${lineCount} lines). Consider using --skeleton or --max-tokens to optimize context density.`
+    );
+  }
+  if (recommendations.length === 0) {
+    recommendations.push('Context is clean and within standard token density boundaries.');
+  }
+
+  return {
+    safe: details.length === 0 && !oversizedWarning,
+    leaksFound: details.length,
+    details,
+    totalTokens,
+    lineCount,
+    oversizedWarning,
+    recommendations,
+  };
+}
 
 export const MCP_TOOLS = [
   {
@@ -435,6 +673,71 @@ export const MCP_TOOLS = [
       required: ['rawOutput'],
     },
   },
+  {
+    name: 'extract_symbol_definition',
+    description:
+      'Surgically extract the exact declaration, signature, and body lines of a specific function, class, interface, or type without loading the entire file (Layer 4 Surgical Fetch)',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        filePath: {
+          type: 'string',
+          description: 'Relative or absolute path to the source file',
+        },
+        symbolName: {
+          type: 'string',
+          description: 'Name of the function, class, interface, type, or method to extract',
+        },
+        cwd: {
+          type: 'string',
+          description: 'Workspace root directory (defaults to current project root)',
+        },
+      },
+      required: ['filePath', 'symbolName'],
+    },
+  },
+  {
+    name: 'get_impacted_tests',
+    description:
+      'Identify unit and integration test files directly or transitively affected by changes to target files or git diff (test blast-radius analysis)',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        targets: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Target file paths to analyze (if omitted, analyzes uncommitted/staged git changes)',
+        },
+        stagedOnly: {
+          type: 'boolean',
+          description: 'If true, only analyzes staged git files when targets are omitted',
+        },
+        cwd: {
+          type: 'string',
+          description: 'Workspace root directory (defaults to current project root)',
+        },
+      },
+    },
+  },
+  {
+    name: 'audit_context_leak',
+    description:
+      'Audit a context block, prompt, or tool output for accidental secret leaks (API keys, private keys, passwords) and token bloat before sending to an LLM',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        content: {
+          type: 'string',
+          description: 'Source code, prompt text, or tool output to audit for leaks and bloat',
+        },
+        cwd: {
+          type: 'string',
+          description: 'Workspace root directory (defaults to current project root)',
+        },
+      },
+      required: ['content'],
+    },
+  },
 ];
 
 /**
@@ -473,7 +776,7 @@ export class McpServer {
               },
               serverInfo: {
                 name: 'smart-context-packer',
-                version: '2.2.0',
+                version: '2.3.0',
               },
             },
           };
@@ -1094,6 +1397,212 @@ export class McpServer {
                   {
                     type: 'text',
                     text: header + res.output,
+                  },
+                ],
+              },
+            };
+          }
+
+          if (toolName === 'extract_symbol_definition') {
+            const filePath = String(args.filePath || '');
+            const symbolName = String(args.symbolName || '').trim();
+            const effectiveCwd = resolveEffectiveCwd([filePath], args.cwd as string | undefined);
+            const fullPath = path.isAbsolute(filePath) ? filePath : path.resolve(effectiveCwd, filePath);
+            const relPath = path.relative(effectiveCwd, fullPath).replace(/\\/g, '/');
+
+            if (!fs.existsSync(fullPath)) {
+              return {
+                jsonrpc: '2.0',
+                id,
+                result: {
+                  content: [
+                    {
+                      type: 'text',
+                      text: `Error: File not found: "${filePath}" in workspace ${effectiveCwd}`,
+                    },
+                  ],
+                },
+              };
+            }
+
+            const rawContent = fs.readFileSync(fullPath, 'utf-8');
+            const ext = path.extname(fullPath);
+            const res = extractSymbolFromCode(rawContent, symbolName, ext);
+
+            if (!res.found || !res.codeSnippet) {
+              const exported = AstCache.extractExportedSymbols(rawContent, ext);
+              const hint = exported.length > 0 ? `\nAvailable exported symbols in this file: ${exported.join(', ')}` : '';
+              return {
+                jsonrpc: '2.0',
+                id,
+                result: {
+                  content: [
+                    {
+                      type: 'text',
+                      text: `Symbol "${symbolName}" was not found in ${relPath}.${hint}`,
+                    },
+                  ],
+                },
+              };
+            }
+
+            const lang = ext.replace(/^\./, '') || 'ts';
+            const header = `<!-- SURGICAL SYMBOL DEFINITION: ${symbolName} (${relPath}:${res.startLine}-${res.endLine}, ~${res.estimatedTokens} tokens) -->\n\n`;
+            const formatted = `${header}\`\`\`${lang}\n// File: ${relPath}:${res.startLine}-${res.endLine}\n${res.codeSnippet}\n\`\`\``;
+
+            return {
+              jsonrpc: '2.0',
+              id,
+              result: {
+                content: [
+                  {
+                    type: 'text',
+                    text: formatted,
+                  },
+                ],
+              },
+            };
+          }
+
+          if (toolName === 'get_impacted_tests') {
+            const rawTargets = Array.isArray(args.targets) ? (args.targets as string[]) : [];
+            const stagedOnly = Boolean(args.stagedOnly);
+            const effectiveCwd = resolveEffectiveCwd(rawTargets, args.cwd as string | undefined);
+
+            let targets = rawTargets;
+            if (targets.length === 0) {
+              targets = getGitModifiedFiles(effectiveCwd, stagedOnly);
+            }
+
+            if (targets.length === 0) {
+              return {
+                jsonrpc: '2.0',
+                id,
+                result: {
+                  content: [
+                    {
+                      type: 'text',
+                      text: `<!-- NO IMPACTED TESTS -->\nWorking tree is clean and no target files were specified for test impact analysis.`,
+                    },
+                  ],
+                },
+              };
+            }
+
+            const analyzer = new DependencyAnalyzer({
+              cwd: effectiveCwd,
+              reverse: true,
+              depth: 3,
+            });
+            const graph = await analyzer.analyze(targets);
+            const blast = await calculateBlastRadius(targets, graph, effectiveCwd);
+
+            // Determine test runner
+            let runner = 'npm test';
+            if (fs.existsSync(path.join(effectiveCwd, 'package.json'))) {
+              try {
+                const pkg = JSON.parse(fs.readFileSync(path.join(effectiveCwd, 'package.json'), 'utf-8'));
+                const allDeps = { ...(pkg.dependencies || {}), ...(pkg.devDependencies || {}) };
+                if (allDeps.vitest) {
+                  runner = 'npx vitest run';
+                } else if (allDeps.jest) {
+                  runner = 'npx jest';
+                }
+              } catch {
+                // ignore
+              }
+            } else if (fs.existsSync(path.join(effectiveCwd, 'pytest.ini')) || fs.existsSync(path.join(effectiveCwd, 'requirements.txt'))) {
+              runner = 'pytest';
+            } else if (fs.existsSync(path.join(effectiveCwd, 'go.mod'))) {
+              runner = 'go test';
+            } else if (fs.existsSync(path.join(effectiveCwd, 'Cargo.toml'))) {
+              runner = 'cargo test';
+            }
+
+            const impactedTests = blast.impactedTests;
+            const suggestedCmd = impactedTests.length > 0
+              ? `${runner} ${impactedTests.join(' ')}`
+              : `${runner}`;
+
+            const lines = [
+              `<!-- TEST BLAST RADIUS: ${blast.riskLevel} (${blast.riskScore}/10) -->`,
+              '',
+              `### 🧪 Impacted Tests Analysis`,
+              `- **Targets Analyzed**: ${targets.map((t) => `\`${t}\``).join(', ')}`,
+              `- **Risk Level**: \`${blast.riskLevel}\` (Score: ${blast.riskScore}/10)`,
+              `- **Impacted Callers**: ${blast.callers.length}`,
+              `- **Impacted Test Suites (${impactedTests.length})**:`,
+            ];
+
+            if (impactedTests.length > 0) {
+              for (const test of impactedTests) {
+                lines.push(`  • \`${test}\``);
+              }
+              lines.push('');
+              lines.push(`**Suggested Verification Command:**`);
+              lines.push('```bash');
+              lines.push(suggestedCmd);
+              lines.push('```');
+            } else {
+              lines.push('  *(No unit tests directly or transitively cover these target files)*');
+              if (blast.untestedTargets.length > 0) {
+                lines.push('');
+                lines.push(`⚠️ **Untested Targets**: ${blast.untestedTargets.map((u) => `\`${u}\``).join(', ')}`);
+                lines.push('Consider adding unit tests to prevent regressions in these modules.');
+              }
+            }
+
+            return {
+              jsonrpc: '2.0',
+              id,
+              result: {
+                content: [
+                  {
+                    type: 'text',
+                    text: lines.join('\n'),
+                  },
+                ],
+              },
+            };
+          }
+
+          if (toolName === 'audit_context_leak') {
+            const content = String(args.content || '');
+            const audit = auditContextContent(content);
+
+            const lines = [
+              `<!-- CONTEXT LEAK & DENSITY AUDIT -->`,
+              '',
+              `### 🛡️ Context Safety & Token Density Audit`,
+              `- **Safety Status**: ${audit.safe ? '✅ SAFE' : '⚠️ ATTENTION REQUIRED'}`,
+              `- **Potential Leaks Detected**: ${audit.leaksFound}`,
+              `- **Total Lines**: ${audit.lineCount}`,
+              `- **Estimated Tokens**: ${audit.totalTokens} tokens`,
+              `- **Oversized Block (>400 lines / >8k tokens)**: ${audit.oversizedWarning ? '⚠️ YES' : 'No'}`,
+              '',
+            ];
+
+            if (audit.details.length > 0) {
+              lines.push('#### 🚨 Detected Secret / Token Leaks:');
+              for (const d of audit.details) {
+                lines.push(`- **Line ${d.line || '?'}**: \`${d.type}\` - ${d.description} (Sample: \`${d.sample || '***'}\`)`);
+              }
+              lines.push('');
+            }
+
+            lines.push('#### 💡 Recommendations:');
+            for (const r of audit.recommendations) {
+              lines.push(`- ${r}`);
+            }
+
+            return {
+              jsonrpc: '2.0',
+              id,
+              result: {
+                content: [
+                  {
+                    type: 'text',
+                    text: lines.join('\n'),
                   },
                 ],
               },

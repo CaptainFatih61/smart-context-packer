@@ -4,7 +4,19 @@ import path from 'node:path';
 export interface DependencyManifestEntry {
   name: string;
   version: string;
-  source: 'package.json' | 'go.mod' | 'Cargo.toml' | 'requirements.txt';
+  source:
+    | 'package.json'
+    | 'go.mod'
+    | 'Cargo.toml'
+    | 'requirements.txt'
+    | '.csproj'
+    | 'pom.xml'
+    | 'build.gradle'
+    | 'composer.json'
+    | 'pubspec.yaml'
+    | 'Package.swift'
+    | 'Gemfile'
+    | 'CMakeLists.txt';
 }
 
 /**
@@ -19,7 +31,7 @@ export class DependencyManifestResolver {
   }
 
   /**
-   * Scans workspace manifest files (package.json, go.mod, Cargo.toml, requirements.txt).
+   * Scans workspace manifest files across 16 supported languages.
    */
   public loadWorkspaceManifest(): Map<string, DependencyManifestEntry> {
     if (this.manifestCache) {
@@ -28,7 +40,7 @@ export class DependencyManifestResolver {
 
     const map = new Map<string, DependencyManifestEntry>();
 
-    // 1. package.json
+    // 1. package.json (Node/TS/JS)
     const pkgPath = path.join(this.workspaceRoot, 'package.json');
     if (fs.existsSync(pkgPath)) {
       try {
@@ -48,7 +60,7 @@ export class DependencyManifestResolver {
       }
     }
 
-    // 2. go.mod
+    // 2. go.mod (Go)
     const goModPath = path.join(this.workspaceRoot, 'go.mod');
     if (fs.existsSync(goModPath)) {
       try {
@@ -66,7 +78,7 @@ export class DependencyManifestResolver {
       }
     }
 
-    // 3. Cargo.toml
+    // 3. Cargo.toml (Rust)
     const cargoPath = path.join(this.workspaceRoot, 'Cargo.toml');
     if (fs.existsSync(cargoPath)) {
       try {
@@ -91,7 +103,7 @@ export class DependencyManifestResolver {
       }
     }
 
-    // 4. requirements.txt
+    // 4. requirements.txt (Python)
     const reqPath = path.join(this.workspaceRoot, 'requirements.txt');
     if (fs.existsSync(reqPath)) {
       try {
@@ -107,6 +119,157 @@ export class DependencyManifestResolver {
               map.set(name.toLowerCase(), { name, version, source: 'requirements.txt' });
             }
           }
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    // 5. *.csproj (C# / .NET)
+    try {
+      const files = fs.readdirSync(this.workspaceRoot);
+      const csprojFile = files.find((f) => f.endsWith('.csproj'));
+      if (csprojFile) {
+        const content = fs.readFileSync(path.join(this.workspaceRoot, csprojFile), 'utf-8');
+        const pkgRefRegex = /<PackageReference\s+Include=["']([^"']+)["'](?:\s+Version=["']([^"']+)["'])?/gi;
+        let m: RegExpExecArray | null;
+        while ((m = pkgRefRegex.exec(content)) !== null) {
+          const name = m[1]!;
+          const version = m[2] || 'latest';
+          map.set(name.toLowerCase(), { name, version, source: '.csproj' });
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    // 6. pom.xml (Java / Maven)
+    const pomPath = path.join(this.workspaceRoot, 'pom.xml');
+    if (fs.existsSync(pomPath)) {
+      try {
+        const content = fs.readFileSync(pomPath, 'utf-8');
+        const depRegex = /<dependency>[\s\S]*?<artifactId>([^<]+)<\/artifactId>(?:[\s\S]*?<version>([^<]+)<\/version>)?[\s\S]*?<\/dependency>/gi;
+        let m: RegExpExecArray | null;
+        while ((m = depRegex.exec(content)) !== null) {
+          const name = m[1]!.trim();
+          const version = (m[2] || 'latest').trim();
+          map.set(name.toLowerCase(), { name, version, source: 'pom.xml' });
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    // 7. build.gradle / build.gradle.kts (Java / Kotlin / Android)
+    const gradleFiles = ['build.gradle', 'build.gradle.kts'];
+    for (const gFile of gradleFiles) {
+      const gPath = path.join(this.workspaceRoot, gFile);
+      if (fs.existsSync(gPath)) {
+        try {
+          const content = fs.readFileSync(gPath, 'utf-8');
+          const depRegex = /\b(?:implementation|api|compileOnly)\s*\(?['"]([^:'"]+):([^:'"]+):([^'"]+)['"]\)?/g;
+          let m: RegExpExecArray | null;
+          while ((m = depRegex.exec(content)) !== null) {
+            const name = m[2]!;
+            const version = m[3]!;
+            map.set(name.toLowerCase(), { name, version, source: 'build.gradle' });
+          }
+        } catch {
+          // ignore
+        }
+      }
+    }
+
+    // 8. composer.json (PHP)
+    const composerPath = path.join(this.workspaceRoot, 'composer.json');
+    if (fs.existsSync(composerPath)) {
+      try {
+        const parsed = JSON.parse(fs.readFileSync(composerPath, 'utf-8'));
+        const allDeps = { ...(parsed.require || {}), ...(parsed['require-dev'] || {}) };
+        for (const [name, version] of Object.entries(allDeps)) {
+          if (typeof version === 'string' && name !== 'php') {
+            map.set(name.toLowerCase(), { name, version, source: 'composer.json' });
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    // 9. pubspec.yaml (Dart / Flutter)
+    const pubspecPath = path.join(this.workspaceRoot, 'pubspec.yaml');
+    if (fs.existsSync(pubspecPath)) {
+      try {
+        const content = fs.readFileSync(pubspecPath, 'utf-8');
+        const lines = content.split('\n');
+        let inDeps = false;
+        for (const line of lines) {
+          if (/^(?:dependencies|dev_dependencies):/.test(line)) {
+            inDeps = true;
+            continue;
+          }
+          if (/^[a-zA-Z0-9_-]+:/.test(line)) {
+            inDeps = false;
+          }
+          if (inDeps) {
+            const m = line.match(/^\s+([a-zA-Z0-9_-]+):\s*([^\s#]+)/);
+            if (m && m[1] && m[2] && m[1] !== 'flutter' && m[1] !== 'sdk') {
+              map.set(m[1].toLowerCase(), { name: m[1], version: m[2], source: 'pubspec.yaml' });
+            }
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    // 10. Package.swift (Swift)
+    const swiftPkgPath = path.join(this.workspaceRoot, 'Package.swift');
+    if (fs.existsSync(swiftPkgPath)) {
+      try {
+        const content = fs.readFileSync(swiftPkgPath, 'utf-8');
+        const pkgRegex = /\.package\s*\(\s*(?:url:\s*["'][^"']*\/([^/"']+?)(?:\.git)?["']|name:\s*["']([^"']+)["'])\s*,\s*(?:from:\s*["']([^"']+)["']|exact:\s*["']([^"']+)["'])/g;
+        let m: RegExpExecArray | null;
+        while ((m = pkgRegex.exec(content)) !== null) {
+          const name = m[1] || m[2];
+          const version = m[3] || m[4] || 'latest';
+          if (name) {
+            map.set(name.toLowerCase(), { name, version, source: 'Package.swift' });
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    // 11. Gemfile (Ruby)
+    const gemfilePath = path.join(this.workspaceRoot, 'Gemfile');
+    if (fs.existsSync(gemfilePath)) {
+      try {
+        const content = fs.readFileSync(gemfilePath, 'utf-8');
+        const gemRegex = /^\s*gem\s+['"]([^'"]+)['"](?:\s*,\s*['"]([^'"]+)['"])?/gm;
+        let m: RegExpExecArray | null;
+        while ((m = gemRegex.exec(content)) !== null) {
+          const name = m[1]!;
+          const version = m[2] || 'latest';
+          map.set(name.toLowerCase(), { name, version, source: 'Gemfile' });
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    // 12. CMakeLists.txt (C / C++)
+    const cmakePath = path.join(this.workspaceRoot, 'CMakeLists.txt');
+    if (fs.existsSync(cmakePath)) {
+      try {
+        const content = fs.readFileSync(cmakePath, 'utf-8');
+        const cmakeRegex = /find_package\s*\(\s*([a-zA-Z0-9_-]+)(?:\s+([0-9.]+))?/gi;
+        let m: RegExpExecArray | null;
+        while ((m = cmakeRegex.exec(content)) !== null) {
+          const name = m[1]!;
+          const version = m[2] || 'latest';
+          map.set(name.toLowerCase(), { name, version, source: 'CMakeLists.txt' });
         }
       } catch {
         // ignore
@@ -166,17 +329,29 @@ export class DependencyManifestResolver {
         }
       }
 
-      // Match Go / Rust imports
-      const goRustImports = code.matchAll(/(?:use\s+|import\s+['"]?)([a-zA-Z0-9_\-/]+)/g);
-      for (const m of goRustImports) {
-        const pkgName = m[1]!.toLowerCase();
-        const baseName = pkgName.split('/')[0]!;
-        if (manifest.has(pkgName)) {
-          const entry = manifest.get(pkgName)!;
+      // Match Go / Rust / PHP / C# / Java / Dart / Swift / Ruby / C++
+      const polyglotTokens = code.matchAll(/(?:use\s+|import\s+|using\s+|require\s+|gem\s+|#include\s+<?|package:)([a-zA-Z0-9_\-./\\]+)/g);
+      for (const m of polyglotTokens) {
+        const raw = m[1]!.toLowerCase().replace(/\\/g, '/');
+        const firstSegment = raw.split(/[/.]/)[0]!;
+        const lastSegment = raw.split(/[/.]/).pop()!;
+
+        if (manifest.has(raw)) {
+          const entry = manifest.get(raw)!;
           matched.set(entry.name, entry);
-        } else if (manifest.has(baseName)) {
-          const entry = manifest.get(baseName)!;
+        } else if (manifest.has(firstSegment)) {
+          const entry = manifest.get(firstSegment)!;
           matched.set(entry.name, entry);
+        } else if (manifest.has(lastSegment)) {
+          const entry = manifest.get(lastSegment)!;
+          matched.set(entry.name, entry);
+        } else {
+          // Check if any package has vendor prefix, e.g. "guzzlehttp/guzzle" matching "guzzlehttp"
+          for (const [key, entry] of manifest.entries()) {
+            if (key.startsWith(firstSegment + '/') || key.endsWith('/' + firstSegment)) {
+              matched.set(entry.name, entry);
+            }
+          }
         }
       }
     }

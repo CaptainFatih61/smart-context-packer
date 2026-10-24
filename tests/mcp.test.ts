@@ -28,7 +28,7 @@ describe('Model Context Protocol (MCP) Server', () => {
     expect(res?.id).toBe(1);
     expect(res?.result).toHaveProperty('protocolVersion');
     expect((res?.result as any).serverInfo.name).toBe('smart-context-packer');
-    expect((res?.result as any).serverInfo.version).toBe('2.2.0');
+    expect((res?.result as any).serverInfo.version).toBe('2.3.0');
   });
 
   it('handles ping request', async () => {
@@ -53,7 +53,7 @@ describe('Model Context Protocol (MCP) Server', () => {
     expect(res?.id).toBe(3);
     const tools = (res?.result as any).tools;
     expect(Array.isArray(tools)).toBe(true);
-    expect(tools.length).toBe(12);
+    expect(tools.length).toBe(15);
 
     const names = tools.map((t: any) => t.name);
     expect(names).toContain('search_codebase_index');
@@ -68,6 +68,9 @@ describe('Model Context Protocol (MCP) Server', () => {
     expect(names).toContain('manage_task_context');
     expect(names).toContain('get_framework_manifest');
     expect(names).toContain('sandbox_tool_output');
+    expect(names).toContain('extract_symbol_definition');
+    expect(names).toContain('get_impacted_tests');
+    expect(names).toContain('audit_context_leak');
   });
 
   it('calls inspect_dependency_graph tool', async () => {
@@ -449,6 +452,85 @@ describe('Model Context Protocol (MCP) Server', () => {
     expect(content).toContain('TOOL OUTPUT SANDBOX');
     expect(content).toContain('charges card with Stripe SDK');
     expect(content).toContain('StripeCardError');
+  });
+
+  it('calls extract_symbol_definition tool surgically', async () => {
+    const targetFile = path.resolve(sampleAppDir, 'src/index.ts');
+    const res = await server.handleMessage({
+      jsonrpc: '2.0',
+      id: 21,
+      method: 'tools/call',
+      params: {
+        name: 'extract_symbol_definition',
+        arguments: {
+          filePath: targetFile,
+          symbolName: 'main',
+        },
+      },
+    });
+
+    expect(res?.id).toBe(21);
+    expect(res?.error).toBeUndefined();
+    const content = (res?.result as any).content[0].text;
+    expect(content).toContain('SURGICAL SYMBOL DEFINITION: main');
+    expect(content).toContain('function main');
+  });
+
+  it('calls get_impacted_tests tool', async () => {
+    const targetFile = path.resolve(sampleAppDir, 'src/services/auth.ts');
+    const res = await server.handleMessage({
+      jsonrpc: '2.0',
+      id: 22,
+      method: 'tools/call',
+      params: {
+        name: 'get_impacted_tests',
+        arguments: {
+          targets: [targetFile],
+        },
+      },
+    });
+
+    expect(res?.id).toBe(22);
+    expect(res?.error).toBeUndefined();
+    const content = (res?.result as any).content[0].text;
+    expect(content).toContain('Impacted Tests Analysis');
+    expect(content).toContain('Untested Targets');
+  });
+
+  it('calls audit_context_leak tool to flag credentials and evaluate token density', async () => {
+    // 1. Unsafe input with fake API key
+    const unsafeText = 'export const apiKey = "sk-proj-abcdef1234567890abcdef1234567890abcdef1234567890";';
+    const resUnsafe = await server.handleMessage({
+      jsonrpc: '2.0',
+      id: 23,
+      method: 'tools/call',
+      params: {
+        name: 'audit_context_leak',
+        arguments: { content: unsafeText },
+      },
+    });
+
+    expect(resUnsafe?.id).toBe(23);
+    const contentUnsafe = (resUnsafe?.result as any).content[0].text;
+    expect(contentUnsafe).toContain('ATTENTION REQUIRED');
+    expect(contentUnsafe).toContain('OPENAI_API_KEY');
+
+    // 2. Safe input
+    const safeText = 'export function add(a: number, b: number): number { return a + b; }';
+    const resSafe = await server.handleMessage({
+      jsonrpc: '2.0',
+      id: 24,
+      method: 'tools/call',
+      params: {
+        name: 'audit_context_leak',
+        arguments: { content: safeText },
+      },
+    });
+
+    expect(resSafe?.id).toBe(24);
+    const contentSafe = (resSafe?.result as any).content[0].text;
+    expect(contentSafe).toContain('✅ SAFE');
+    expect(contentSafe).toContain('17 tokens');
   });
 
   it('returns error for unknown tool call', async () => {

@@ -3,22 +3,35 @@ import fg from 'fast-glob';
 import type { DependencyGraph, BlastRadiusResult, RiskLevel } from './types.js';
 
 const TEST_FILE_PATTERNS = [
-  '**/*.test.{ts,tsx,js,jsx}',
-  '**/*.spec.{ts,tsx,js,jsx}',
-  'tests/**/*.{ts,tsx,js,jsx}',
-  '**/__tests__/**/*.{ts,tsx,js,jsx}',
+  '**/*.test.{ts,tsx,js,jsx,mjs,cjs,py,dart}',
+  '**/*.spec.{ts,tsx,js,jsx,dart}',
+  '**/*_test.{go,py,rs,dart}',
+  '**/test_*.py',
+  '**/*Test.{java,kt,cs,php}',
+  '**/*Tests.{java,kt,cs,php}',
+  'tests/**/*',
+  '**/__tests__/**/*',
 ];
 
 /**
- * Checks whether a given relative file path is a unit test or specification file.
+ * Checks whether a given relative file path is a unit test or specification file across languages.
  */
 export function isTestFile(filePath: string): boolean {
   const normalized = filePath.replace(/\\/g, '/').toLowerCase();
   return (
     normalized.includes('.test.') ||
     normalized.includes('.spec.') ||
+    normalized.includes('_test.') ||
+    normalized.includes('test_') ||
+    normalized.endsWith('test.cs') ||
+    normalized.endsWith('tests.cs') ||
+    normalized.endsWith('test.java') ||
+    normalized.endsWith('tests.java') ||
+    normalized.endsWith('test.kt') ||
+    normalized.endsWith('test.php') ||
     normalized.startsWith('tests/') ||
     normalized.includes('/tests/') ||
+    normalized.includes('/test/') ||
     normalized.includes('/__tests__/')
   );
 }

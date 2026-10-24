@@ -23,6 +23,7 @@ const EXTENSIONS = [
   '.js',
   '.jsx',
   '.vue',
+  '.svelte',
   '.mjs',
   '.cjs',
   '.json',
@@ -30,6 +31,18 @@ const EXTENSIONS = [
   '.py',
   '.go',
   '.rs',
+  '.cs',
+  '.java',
+  '.kt',
+  '.c',
+  '.cpp',
+  '.cc',
+  '.h',
+  '.hpp',
+  '.php',
+  '.dart',
+  '.swift',
+  '.rb',
 ];
 
 export class DependencyAnalyzer {
@@ -308,13 +321,57 @@ export class DependencyAnalyzer {
       return Array.from(specifiers);
     }
 
-    // 6. Vue Single File Components: extract script sections
+    // 6. C# files
+    if (normalizedExt === '.cs') {
+      this.parseCSharpImports(content).forEach((imp) => specifiers.add(imp));
+      return Array.from(specifiers);
+    }
+
+    // 7. Java / Kotlin files
+    if (normalizedExt === '.java' || normalizedExt === '.kt') {
+      this.parseJvmImports(content).forEach((imp) => specifiers.add(imp));
+      return Array.from(specifiers);
+    }
+
+    // 8. C / C++ files
+    if (['.c', '.cpp', '.cc', '.h', '.hpp'].includes(normalizedExt)) {
+      this.parseCppIncludes(content).forEach((imp) => specifiers.add(imp));
+      return Array.from(specifiers);
+    }
+
+    // 9. PHP files
+    if (normalizedExt === '.php') {
+      this.parsePhpImports(content).forEach((imp) => specifiers.add(imp));
+      return Array.from(specifiers);
+    }
+
+    // 10. Dart files
+    if (normalizedExt === '.dart') {
+      this.parseDartImports(content).forEach((imp) => specifiers.add(imp));
+      return Array.from(specifiers);
+    }
+
+    // 11. Swift files
+    if (normalizedExt === '.swift') {
+      this.parseSwiftImports(content).forEach((imp) => specifiers.add(imp));
+      return Array.from(specifiers);
+    }
+
+    // 12. Ruby files
+    if (normalizedExt === '.rb') {
+      this.parseRubyRequires(content).forEach((imp) => specifiers.add(imp));
+      return Array.from(specifiers);
+    }
+
+    // 13. Vue and Svelte Single File Components
     let codeToParse = content;
     if (normalizedExt === '.vue') {
       codeToParse = this.extractVueScripts(content);
+    } else if (normalizedExt === '.svelte') {
+      codeToParse = this.extractSvelteScripts(content);
     }
 
-    // 7. TypeScript / JavaScript / JSX
+    // 14. TypeScript / JavaScript / JSX
     this.parseJavaScriptImports(codeToParse).forEach((imp) => specifiers.add(imp));
 
     return Array.from(specifiers);
@@ -372,6 +429,122 @@ export class DependencyAnalyzer {
       if (match[1]) scripts += match[1] + '\n';
     }
     return scripts;
+  }
+
+  /**
+   * Extracts <script> tags from a Svelte SFC.
+   */
+  private extractSvelteScripts(svelteContent: string): string {
+    const scriptRegex = /<script\b[^>]*>([\s\S]*?)<\/script>/gi;
+    let scripts = '';
+    let match: RegExpExecArray | null;
+    while ((match = scriptRegex.exec(svelteContent)) !== null) {
+      if (match[1]) scripts += match[1] + '\n';
+    }
+    return scripts;
+  }
+
+  /**
+   * Parses C# using declarations.
+   */
+  private parseCSharpImports(content: string): string[] {
+    const results = new Set<string>();
+    const clean = content.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+    const usingRegex = /^\s*using\s+(?:static\s+)?([a-zA-Z0-9_.]+)\s*;/gm;
+    let match: RegExpExecArray | null;
+    while ((match = usingRegex.exec(clean)) !== null) {
+      if (match[1]) results.add(match[1]);
+    }
+    return Array.from(results);
+  }
+
+  /**
+   * Parses Java and Kotlin import declarations.
+   */
+  private parseJvmImports(content: string): string[] {
+    const results = new Set<string>();
+    const clean = content.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+    const importRegex = /^\s*import\s+(?:static\s+)?([a-zA-Z0-9_.*]+)\s*;/gm;
+    let match: RegExpExecArray | null;
+    while ((match = importRegex.exec(clean)) !== null) {
+      if (match[1]) results.add(match[1]);
+    }
+    return Array.from(results);
+  }
+
+  /**
+   * Parses C and C++ #include directives.
+   */
+  private parseCppIncludes(content: string): string[] {
+    const results = new Set<string>();
+    const clean = content.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+    const incRegex = /^\s*#include\s+(?:["']([^"']+)["']|<([^>]+)>)/gm;
+    let match: RegExpExecArray | null;
+    while ((match = incRegex.exec(clean)) !== null) {
+      const inc = match[1] || match[2];
+      if (inc) results.add(inc);
+    }
+    return Array.from(results);
+  }
+
+  /**
+   * Parses PHP use statements and require/include expressions.
+   */
+  private parsePhpImports(content: string): string[] {
+    const results = new Set<string>();
+    const clean = content.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '').replace(/#.*$/gm, '');
+    const useRegex = /^\s*use\s+([\\a-zA-Z0-9_]+)\s*;/gm;
+    let match: RegExpExecArray | null;
+    while ((match = useRegex.exec(clean)) !== null) {
+      if (match[1]) results.add(match[1]);
+    }
+    const reqRegex = /\b(?:require|require_once|include|include_once)\s*\(?['"]([^'"]+)['"]\)?/g;
+    while ((match = reqRegex.exec(clean)) !== null) {
+      if (match[1]) results.add(match[1]);
+    }
+    return Array.from(results);
+  }
+
+  /**
+   * Parses Dart import, export, and part statements.
+   */
+  private parseDartImports(content: string): string[] {
+    const results = new Set<string>();
+    const clean = content.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+    const dartRegex = /\b(?:import|export|part)\s+['"]([^'"]+)['"]/g;
+    let match: RegExpExecArray | null;
+    while ((match = dartRegex.exec(clean)) !== null) {
+      if (match[1]) results.add(match[1]);
+    }
+    return Array.from(results);
+  }
+
+  /**
+   * Parses Swift import statements.
+   */
+  private parseSwiftImports(content: string): string[] {
+    const results = new Set<string>();
+    const clean = content.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+    const swiftRegex = /^\s*import\s+(?:(?:typealias|struct|class|enum|protocol|let|var|func)\s+)?([a-zA-Z0-9_.]+)/gm;
+    let match: RegExpExecArray | null;
+    while ((match = swiftRegex.exec(clean)) !== null) {
+      if (match[1]) results.add(match[1]);
+    }
+    return Array.from(results);
+  }
+
+  /**
+   * Parses Ruby require and require_relative calls.
+   */
+  private parseRubyRequires(content: string): string[] {
+    const results = new Set<string>();
+    const clean = content.replace(/#.*$/gm, '');
+    const rbRegex = /\b(?:require|require_relative|load)\s*\(?['"]([^'"]+)['"]\)?/g;
+    let match: RegExpExecArray | null;
+    while ((match = rbRegex.exec(clean)) !== null) {
+      if (match[1]) results.add(match[1]);
+    }
+    return Array.from(results);
   }
 
   /**
@@ -670,6 +843,143 @@ export class DependencyAnalyzer {
         const candidateFromCwd = path.resolve(this.cwd, pyConverted);
         const verifiedFromCwd = this.findFileWithExtension(candidateFromCwd, ['.py']);
         if (verifiedFromCwd) return this.toRelative(verifiedFromCwd);
+      }
+    }
+
+    // 7. C# namespace / file resolution
+    if (fromFile.toLowerCase().endsWith('.cs')) {
+      if (specifier.startsWith('.')) {
+        const candidate = path.resolve(fromDir, specifier);
+        const verified = this.findFileWithExtension(candidate, ['.cs']);
+        if (verified) return this.toRelative(verified);
+      } else {
+        const converted = specifier.replace(/\./g, '/');
+        const candidates = [
+          path.resolve(fromDir, converted),
+          path.resolve(fromDir, specifier),
+          path.resolve(this.cwd, converted),
+          path.resolve(this.cwd, 'src', converted),
+        ];
+        for (const c of candidates) {
+          const verified = this.findFileWithExtension(c, ['.cs']);
+          if (verified) return this.toRelative(verified);
+        }
+      }
+    }
+
+    // 8. Java & Kotlin package / class resolution
+    if (fromFile.toLowerCase().endsWith('.java') || fromFile.toLowerCase().endsWith('.kt')) {
+      const jvmExts = ['.java', '.kt'];
+      if (specifier.startsWith('.')) {
+        const candidate = path.resolve(fromDir, specifier);
+        const verified = this.findFileWithExtension(candidate, jvmExts);
+        if (verified) return this.toRelative(verified);
+      } else {
+        const cleanSpec = specifier.replace(/\.\*$/, '');
+        const converted = cleanSpec.replace(/\./g, '/');
+        const candidates = [
+          path.resolve(fromDir, converted),
+          path.resolve(this.cwd, converted),
+          path.resolve(this.cwd, 'src/main/java', converted),
+          path.resolve(this.cwd, 'src/main/kotlin', converted),
+          path.resolve(this.cwd, 'src', converted),
+        ];
+        for (const c of candidates) {
+          const verified = this.findFileWithExtension(c, jvmExts);
+          if (verified) return this.toRelative(verified);
+        }
+      }
+    }
+
+    // 9. C / C++ include resolution
+    if (['.c', '.cpp', '.cc', '.h', '.hpp'].some((e) => fromFile.toLowerCase().endsWith(e))) {
+      const cppExts = ['.h', '.hpp', '.c', '.cpp', '.cc'];
+      const candidates = [
+        path.resolve(fromDir, specifier),
+        path.resolve(this.cwd, specifier),
+        path.resolve(this.cwd, 'include', specifier),
+        path.resolve(this.cwd, 'src', specifier),
+      ];
+      for (const c of candidates) {
+        const verified = this.findFileWithExtension(c, cppExts);
+        if (verified) return this.toRelative(verified);
+      }
+    }
+
+    // 10. PHP namespace / file resolution
+    if (fromFile.toLowerCase().endsWith('.php')) {
+      if (specifier.startsWith('.')) {
+        const candidate = path.resolve(fromDir, specifier);
+        const verified = this.findFileWithExtension(candidate, ['.php']);
+        if (verified) return this.toRelative(verified);
+      } else {
+        const converted = specifier.replace(/\\/g, '/').replace(/^\//, '');
+        const candidates = [
+          path.resolve(fromDir, converted),
+          path.resolve(fromDir, specifier),
+          path.resolve(this.cwd, converted),
+          path.resolve(this.cwd, 'src', converted),
+          path.resolve(this.cwd, 'app', converted),
+        ];
+        for (const c of candidates) {
+          const verified = this.findFileWithExtension(c, ['.php']);
+          if (verified) return this.toRelative(verified);
+        }
+      }
+    }
+
+    // 11. Dart package & file resolution
+    if (fromFile.toLowerCase().endsWith('.dart')) {
+      if (specifier.startsWith('.')) {
+        const candidate = path.resolve(fromDir, specifier);
+        const verified = this.findFileWithExtension(candidate, ['.dart']);
+        if (verified) return this.toRelative(verified);
+      } else if (specifier.startsWith('package:')) {
+        const rest = specifier.slice(8);
+        const slashIdx = rest.indexOf('/');
+        if (slashIdx !== -1) {
+          const subPath = rest.slice(slashIdx + 1);
+          const candidate = path.resolve(this.cwd, 'lib', subPath);
+          const verified = this.findFileWithExtension(candidate, ['.dart']);
+          if (verified) return this.toRelative(verified);
+        }
+      } else {
+        const candidate = path.resolve(fromDir, specifier);
+        const verified = this.findFileWithExtension(candidate, ['.dart']);
+        if (verified) return this.toRelative(verified);
+      }
+    }
+
+    // 12. Swift file / module resolution
+    if (fromFile.toLowerCase().endsWith('.swift')) {
+      const candidates = [
+        path.resolve(fromDir, specifier),
+        path.resolve(fromDir, `${specifier}.swift`),
+        path.resolve(this.cwd, 'Sources', specifier),
+        path.resolve(this.cwd, 'Sources', `${specifier}.swift`),
+      ];
+      for (const c of candidates) {
+        const verified = this.findFileWithExtension(c, ['.swift']);
+        if (verified) return this.toRelative(verified);
+      }
+    }
+
+    // 13. Ruby require resolution
+    if (fromFile.toLowerCase().endsWith('.rb')) {
+      if (specifier.startsWith('.')) {
+        const candidate = path.resolve(fromDir, specifier);
+        const verified = this.findFileWithExtension(candidate, ['.rb']);
+        if (verified) return this.toRelative(verified);
+      } else {
+        const candidates = [
+          path.resolve(fromDir, specifier),
+          path.resolve(this.cwd, 'lib', specifier),
+          path.resolve(this.cwd, specifier),
+        ];
+        for (const c of candidates) {
+          const verified = this.findFileWithExtension(c, ['.rb']);
+          if (verified) return this.toRelative(verified);
+        }
       }
     }
 

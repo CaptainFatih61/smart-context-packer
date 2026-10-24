@@ -19,7 +19,7 @@ program
   .description(
     '📦 smart-context-packer: AI-optimized dependency graph context packer for LLM coding assistants'
   )
-  .version('2.2.0', '-v, --version', 'Output current version')
+  .version('2.3.0', '-v, --version', 'Output current version')
   .argument('[targets...]', 'Target entry file(s) or directories to analyze and pack')
   .option('-d, --depth <number>', 'Dependency traversal depth (default: 2)', '2')
   .option('-r, --reverse', 'Include reverse dependencies (files importing target)', false)
@@ -42,7 +42,11 @@ program
   .option('--add-memory <pattern:note>', 'Store persistent project memory note linked to file pattern')
   .option('--list-memory', 'List all persistent project memories stored in .scp/memory.json', false)
   .option('--mcp', 'Launch Model Context Protocol (MCP) JSON-RPC 2.0 stdio server', false)
-  .option('--init-agent [preset]', 'Generate AI coding rules (all, cursor, claude, copilot, windsurf)', false)
+  .option(
+    '--init-agent [preset]',
+    'Generate AI coding rules (all, cursor, claude, copilot, windsurf, opencode, codex, continue, zed, clinerules, aider, jetbrains)',
+    false
+  )
   .option('--init-vscode', 'Initialize or update .vscode/tasks.json with SCP Command Palette tasks', false)
   .option('--sandbox <command>', 'Execute shell command and compress verbose output for AI context windows')
   .option('--stdout', 'Print packed context prompt directly to standard output', false)

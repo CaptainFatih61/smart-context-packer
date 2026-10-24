@@ -1,6 +1,6 @@
 {
   "name": "smart-context-packer",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "description": "Smart dependency graph analyzer and AI context pack generator for LLM coding assistants",
   "keywords": [
     "ai",
@@ -10,9 +10,20 @@
     "dependency-graph",
     "token-counter",
     "typescript",
+    "csharp",
+    "java",
+    "kotlin",
+    "cpp",
+    "php",
+    "dart",
+    "flutter",
+    "swift",
+    "ruby",
+    "svelte",
     "vue",
     "lua",
     "fivem",
+    "mcp",
     "cli"
   ],
   "author": "Antigravity Team",
