@@ -130,11 +130,24 @@ export class DependencyManifestResolver {
       if (!code) continue;
 
       // Match JS/TS imports: from 'foo', require('foo')
-      const jsImports = code.matchAll(/(?:from\s+['"]|import\s*\(?['"]|require\s*\(\s*['"])(@[a-zA-Z0-9-_/]+|[a-zA-Z0-9-_]+)/g);
+      const jsImports = code.matchAll(/(?:from\s+['"]|import\s*\(?['"]|require\s*\(\s*['"])(@[a-zA-Z0-9-_/]+|[a-zA-Z0-9-_/]+)/g);
       for (const m of jsImports) {
-        const pkgName = m[1]!.toLowerCase();
-        if (manifest.has(pkgName)) {
-          const entry = manifest.get(pkgName)!;
+        const rawPkg = m[1]!.toLowerCase();
+        let basePkg = rawPkg;
+        if (basePkg.startsWith('@')) {
+          const parts = basePkg.split('/');
+          if (parts.length >= 2) {
+            basePkg = `${parts[0]}/${parts[1]}`;
+          }
+        } else {
+          basePkg = basePkg.split('/')[0]!;
+        }
+
+        if (manifest.has(basePkg)) {
+          const entry = manifest.get(basePkg)!;
+          matched.set(entry.name, entry);
+        } else if (manifest.has(rawPkg)) {
+          const entry = manifest.get(rawPkg)!;
           matched.set(entry.name, entry);
         }
       }
@@ -143,8 +156,12 @@ export class DependencyManifestResolver {
       const pyImports = code.matchAll(/(?:import\s+|from\s+)([a-zA-Z0-9_]+)/g);
       for (const m of pyImports) {
         const pkgName = m[1]!.toLowerCase();
+        const hyphenated = pkgName.replace(/_/g, '-');
         if (manifest.has(pkgName)) {
           const entry = manifest.get(pkgName)!;
+          matched.set(entry.name, entry);
+        } else if (manifest.has(hyphenated)) {
+          const entry = manifest.get(hyphenated)!;
           matched.set(entry.name, entry);
         }
       }
@@ -153,8 +170,12 @@ export class DependencyManifestResolver {
       const goRustImports = code.matchAll(/(?:use\s+|import\s+['"]?)([a-zA-Z0-9_\-/]+)/g);
       for (const m of goRustImports) {
         const pkgName = m[1]!.toLowerCase();
+        const baseName = pkgName.split('/')[0]!;
         if (manifest.has(pkgName)) {
           const entry = manifest.get(pkgName)!;
+          matched.set(entry.name, entry);
+        } else if (manifest.has(baseName)) {
+          const entry = manifest.get(baseName)!;
           matched.set(entry.name, entry);
         }
       }

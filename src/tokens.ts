@@ -1,7 +1,7 @@
 import path from 'node:path';
 import pc from 'picocolors';
 import type { FileStats, TokenStats, DependencyGraph } from './types.js';
-import { extractSkeleton } from './filter.js';
+import { extractSkeleton, sliceMassiveFile } from './filter.js';
 export { renderAsciiProgressBar } from './hud.js';
 
 export const CONTEXT_WINDOW_128K = 131072;
@@ -107,6 +107,31 @@ export function aggregateTokenStats(graph: DependencyGraph, maxTokens?: number):
 
       if (totalTokens <= maxTokens) {
         break;
+      }
+    }
+
+    // Secondary pass: if still over budget, slice massive nodes (>400 lines)
+    if (totalTokens > maxTokens) {
+      const massiveNodes = Array.from(graph.nodes.values()).filter((n) => n.stats.lines > 400);
+      massiveNodes.sort((a, b) => b.stats.lines - a.stats.lines);
+
+      for (const node of massiveNodes) {
+        const sliced = sliceMassiveFile(node.content, 300);
+        if (sliced !== node.content) {
+          const newStats = calculateFileStats(sliced);
+          const tokenDiff = node.stats.estimatedTokens - newStats.estimatedTokens;
+          const lineDiff = node.stats.lines - newStats.lines;
+          const charDiff = node.stats.characters - newStats.characters;
+
+          node.content = sliced;
+          node.stats = newStats;
+          totalTokens -= tokenDiff;
+          totalLines -= lineDiff;
+          totalChars -= charDiff;
+          convertedAny = true;
+
+          if (totalTokens <= maxTokens) break;
+        }
       }
     }
 

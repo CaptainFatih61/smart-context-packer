@@ -102,4 +102,35 @@ describe('Token Estimation & Statistics', () => {
     expect(summary).toContain('.context-pack.md');
     expect(summary).toContain('Copied to system clipboard');
   });
+
+  it('applies secondary middle-out slicing to massive files when budget is exceeded', () => {
+    const hugeLines = Array.from({ length: 600 }, (_, i) => `const row_${i} = ${i};`).join('\n');
+    const mockGraph: DependencyGraph = {
+      targets: ['src/huge.ts'],
+      rootCwd: '/mock',
+      circularWarnings: [],
+      missingDependencies: [],
+      nodes: new Map([
+        [
+          'src/huge.ts',
+          {
+            filePath: 'src/huge.ts',
+            absolutePath: '/mock/src/huge.ts',
+            type: 'target',
+            depth: 0,
+            imports: [],
+            importedBy: [],
+            isSkeleton: false,
+            content: hugeLines,
+            stats: { lines: 600, characters: hugeLines.length, estimatedTokens: 3000 },
+          },
+        ],
+      ]),
+    };
+
+    const result = aggregateTokenStats(mockGraph, 1500);
+    expect(result.budgetOptimized).toBe(true);
+    expect(mockGraph.nodes.get('src/huge.ts')?.content).toContain('intermediate lines omitted to fit token budget');
+    expect(mockGraph.nodes.get('src/huge.ts')?.stats.lines).toBeLessThanOrEqual(400);
+  });
 });

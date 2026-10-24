@@ -69,4 +69,28 @@ require (
     expect(manifest.has('github.com/gin-gonic/gin')).toBe(true);
     expect(manifest.get('github.com/gin-gonic/gin')?.version).toBe('v1.9.1');
   });
+
+  it('correctly resolves subpath imports and hyphenated Python packages', () => {
+    const pkg = {
+      dependencies: {
+        '@google/genai': '^0.1.0',
+        lodash: '^4.17.21',
+      },
+    };
+    fs.writeFileSync(path.join(tempDir, 'package.json'), JSON.stringify(pkg), 'utf-8');
+    fs.writeFileSync(path.join(tempDir, 'requirements.txt'), 'scikit-learn==1.4.0\n', 'utf-8');
+
+    const code = [
+      `import { GoogleGenAI } from '@google/genai/web';\nconst get = require('lodash/get');`,
+      `import scikit_learn`,
+    ];
+
+    const resolver = new DependencyManifestResolver(tempDir);
+    const active = resolver.resolveActiveDependencies(code);
+
+    const names = active.map((a) => a.name);
+    expect(names).toContain('@google/genai');
+    expect(names).toContain('lodash');
+    expect(names).toContain('scikit-learn');
+  });
 });
