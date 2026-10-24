@@ -1,6 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+export type AgentPreset = 'all' | 'cursor' | 'claude' | 'copilot' | 'windsurf' | 'agent';
+
 export interface InitAgentRulesResult {
   agentRulesPath: string;
   agentRulesCreated: boolean;
@@ -8,6 +10,7 @@ export interface InitAgentRulesResult {
   cursorRulesCreated: boolean;
   created: string[];
   updated: string[];
+  paths?: Record<string, string>;
 }
 
 export const AGENT_RULES_CONTENT = `# SMART CONTEXT PACKER: AUTONOMOUS AI AGENT DIRECTIVE
@@ -35,61 +38,105 @@ Call \`pack_git_diff\` to bundle the working tree changes and surrounding module
 - **Arguments**: \`{ "stagedOnly": false, "depth": 1 }\`
 - **Objective**: View the unified git diff patch alongside caller contracts and imported interfaces.
 
+### 4. For High-Level Architectural Awareness
+Call \`generate_repo_map\` for a bird's-eye architectural view:
+- **Tool**: \`generate_repo_map\`
+- **Arguments**: \`{ "maxTokens": 1024 }\`
+
+### 5. For Natural Language Intent Discovery
+Call \`search_codebase_intent\` to find relevant seed files from plain English intent:
+- **Tool**: \`search_codebase_intent\`
+- **Arguments**: \`{ "query": "auth token refresh verification" }\`
+
 ## 🚫 Anti-Patterns to Avoid
 - DO NOT dump entire directories into context when only specific entrypoints are needed.
 - DO NOT invent or assume functions/types without checking their definitions via \`pack_context\`.
 - DO NOT manually read 2,000-line \`schema.prisma\` files; let \`smart-context-packer\` extract referenced models automatically.
 `;
 
+const CLAUDE_MD_BANNER = `# Project Intelligence with Smart Context Packer (scp)
+When analyzing dependencies, investigating bugs, or packaging context, prefer running \`scp\` commands or using the smart-context-packer MCP tools:
+- \`scp <file> -c\`: Copy target file + dependency graph slice to clipboard.
+- \`scp --diff -c\`: Review uncommitted git changes with surrounding context.
+- \`scp -i "<intent>"\`: Search seed files using BM25 semantic intent routing.
+- \`scp --repo-map\`: Generate architectural PageRank repo-map.
+`;
+
 /**
- * Initializes or updates AI agent rules for Cursor, Antigravity, Claude, and Copilot.
+ * Initializes or updates AI agent rules for Cursor, Antigravity, Claude, Copilot, and Windsurf.
  */
-export function initAgentRules(workspaceRoot = process.cwd()): InitAgentRulesResult {
+export function initAgentRules(
+  workspaceRoot = process.cwd(),
+  preset: AgentPreset = 'all'
+): InitAgentRulesResult {
   const root = path.resolve(workspaceRoot);
   const created: string[] = [];
   const updated: string[] = [];
+  const paths: Record<string, string> = {};
+
+  const writeOrAppend = (relPath: string, content: string, bannerMarker = 'SMART CONTEXT PACKER') => {
+    const fullPath = path.join(root, relPath);
+    const dir = path.dirname(fullPath);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+
+    const relNorm = relPath.replace(/\\/g, '/');
+    paths[relNorm] = fullPath;
+
+    if (fs.existsSync(fullPath)) {
+      const existing = fs.readFileSync(fullPath, 'utf-8');
+      if (!existing.includes(bannerMarker)) {
+        fs.writeFileSync(fullPath, existing.trimEnd() + '\n\n' + content, 'utf-8');
+        updated.push(relNorm);
+      }
+    } else {
+      fs.writeFileSync(fullPath, content, 'utf-8');
+      created.push(relNorm);
+    }
+    return fullPath;
+  };
 
   // 1. .agent/rules/smart-context-packer.md
-  const agentRulesDir = path.join(root, '.agent', 'rules');
-  const agentRulesFile = path.join(agentRulesDir, 'smart-context-packer.md');
-
-  if (!fs.existsSync(agentRulesDir)) {
-    fs.mkdirSync(agentRulesDir, { recursive: true });
-  }
-
-  const relativeAgentFile = path.relative(root, agentRulesFile).replace(/\\/g, '/');
-  const agentRulesCreated = !fs.existsSync(agentRulesFile);
-  fs.writeFileSync(agentRulesFile, AGENT_RULES_CONTENT, 'utf-8');
-  if (agentRulesCreated) {
-    created.push(relativeAgentFile);
-  } else {
-    updated.push(relativeAgentFile);
+  let agentRulesPath = '';
+  let agentRulesCreated = false;
+  if (preset === 'all' || preset === 'agent') {
+    const existsBefore = fs.existsSync(path.join(root, '.agent/rules/smart-context-packer.md'));
+    agentRulesPath = writeOrAppend('.agent/rules/smart-context-packer.md', AGENT_RULES_CONTENT);
+    agentRulesCreated = !existsBefore;
   }
 
   // 2. .cursorrules
-  const cursorrulesFile = path.join(root, '.cursorrules');
-  const relativeCursorFile = path.relative(root, cursorrulesFile).replace(/\\/g, '/');
+  let cursorRulesPath = '';
   let cursorRulesCreated = false;
+  if (preset === 'all' || preset === 'cursor') {
+    const existsBefore = fs.existsSync(path.join(root, '.cursorrules'));
+    cursorRulesPath = writeOrAppend('.cursorrules', AGENT_RULES_CONTENT);
+    cursorRulesCreated = !existsBefore;
+  }
 
-  if (fs.existsSync(cursorrulesFile)) {
-    const existingContent = fs.readFileSync(cursorrulesFile, 'utf-8');
-    if (!existingContent.includes('SMART CONTEXT PACKER')) {
-      const mergedContent = existingContent.trimEnd() + '\n\n' + AGENT_RULES_CONTENT;
-      fs.writeFileSync(cursorrulesFile, mergedContent, 'utf-8');
-      updated.push(relativeCursorFile);
-    }
-  } else {
-    cursorRulesCreated = true;
-    fs.writeFileSync(cursorrulesFile, AGENT_RULES_CONTENT, 'utf-8');
-    created.push(relativeCursorFile);
+  // 3. CLAUDE.md (Claude Code CLI)
+  if (preset === 'all' || preset === 'claude') {
+    writeOrAppend('CLAUDE.md', CLAUDE_MD_BANNER + '\n' + AGENT_RULES_CONTENT, 'Smart Context Packer');
+  }
+
+  // 4. .github/copilot-instructions.md (GitHub Copilot)
+  if (preset === 'all' || preset === 'copilot') {
+    writeOrAppend('.github/copilot-instructions.md', AGENT_RULES_CONTENT);
+  }
+
+  // 5. .windsurfrules (Windsurf / Cascade)
+  if (preset === 'all' || preset === 'windsurf') {
+    writeOrAppend('.windsurfrules', AGENT_RULES_CONTENT);
   }
 
   return {
-    agentRulesPath: agentRulesFile,
+    agentRulesPath: agentRulesPath || path.join(root, '.agent/rules/smart-context-packer.md'),
     agentRulesCreated,
-    cursorRulesPath: cursorrulesFile,
+    cursorRulesPath: cursorRulesPath || path.join(root, '.cursorrules'),
     cursorRulesCreated,
     created,
     updated,
+    paths,
   };
 }

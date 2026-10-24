@@ -5,6 +5,7 @@ dist/
 Thumbs.db
 coverage/
 .context-pack.md
+.context-pack.xml
 *.local
-.scp/cache.json
-**/.scp/cache.json
+.scp/
+**/.scp/

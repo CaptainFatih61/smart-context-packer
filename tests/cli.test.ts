@@ -29,15 +29,17 @@ describe('CLI Execution (dist/cli.js)', () => {
     expect(stdout).toContain('--add-memory');
     expect(stdout).toContain('--list-memory');
     expect(stdout).toContain('--query');
+    expect(stdout).toContain('--task');
     expect(stdout).toContain('--repo-map');
     expect(stdout).toContain('--visualize');
+    expect(stdout).toContain('--sandbox');
     expect(stdout).toContain('--init-agent');
     expect(stdout).toContain('--init-vscode');
   });
 
   it('outputs current version with --version', async () => {
     const { stdout } = await exec(`node "${cliPath}" --version`);
-    expect(stdout).toContain('2.1.0');
+    expect(stdout).toContain('2.2.0');
   });
 
   it('generates prompt to stdout using --stdout flag', async () => {
@@ -89,7 +91,7 @@ describe('CLI Execution (dist/cli.js)', () => {
 
     try {
       const { stdout } = await exec(`node "${cliPath}" --init-agent`, { cwd: tempDir });
-      expect(stdout).toContain('Agent Rules Initialized Successfully');
+      expect(stdout).toContain('Universal Agent Rules Initialized!');
       expect(fs.existsSync(path.join(tempDir, '.agent/rules/smart-context-packer.md'))).toBe(true);
       expect(fs.existsSync(path.join(tempDir, '.cursorrules'))).toBe(true);
     } finally {

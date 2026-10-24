@@ -161,6 +161,10 @@ export interface FormatterOptions {
   memories?: MemoryEntry[];
   /** Optional architectural repo-map text to inject */
   repoMapText?: string;
+  /** Optional active task directive text to inject */
+  taskDirective?: string;
+  /** Optional active external framework dependencies manifest */
+  dependenciesManifest?: string;
   /** If true, redacts sensitive API keys and tokens (default: true) */
   redact?: boolean;
 }
@@ -179,7 +183,7 @@ export interface RepoMapResult {
   rankedNodes: RepoMapNode[];
 }
 
-export interface PackOptions extends AnalyzerOptions, Omit<FormatterOptions, 'blastRadius' | 'memories' | 'repoMapText'> {
+export interface PackOptions extends AnalyzerOptions, Omit<FormatterOptions, 'blastRadius' | 'memories' | 'repoMapText' | 'taskDirective' | 'dependenciesManifest'> {
   targets?: string[];
   output?: string;
   copy?: boolean;
@@ -194,6 +198,12 @@ export interface PackOptions extends AnalyzerOptions, Omit<FormatterOptions, 'bl
   repoMap?: boolean | number;
   /** Generates interactive HTML canvas visualizer report (boolean or custom output file path) */
   visualize?: boolean | string;
+  /** Active task description to inject plan checklist and auto-route seed files */
+  task?: string | boolean;
+  /** If false, suppresses automatic external framework dependency version manifest (default: true) */
+  includeDeps?: boolean;
+  /** If true, shows context HUD budget breakdown (default: true in interactive CLI) */
+  hud?: boolean;
 }
 
 export interface PackResult {
@@ -207,6 +217,8 @@ export interface PackResult {
   memories?: MemoryEntry[];
   repoMap?: RepoMapResult;
   visualizerPath?: string;
+  taskDirective?: string;
+  dependenciesManifest?: string;
   cacheStats?: {
     hits: number;
     misses: number;

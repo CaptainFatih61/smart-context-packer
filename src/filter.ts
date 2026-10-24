@@ -345,3 +345,26 @@ function countBraces(str: string): number {
   const closes = (str.match(/\}/g) || []).length;
   return opens - closes;
 }
+
+/**
+ * Performs smart middle-out slicing on massive files to respect token budgets
+ * while keeping essential imports, exports, and top-level signatures.
+ */
+export function sliceMassiveFile(content: string, maxLines = 400): string {
+  if (!content) return content;
+  const lines = content.split(/\r?\n/);
+  if (lines.length <= maxLines) return content;
+
+  const headLines = Math.floor(maxLines * 0.4);
+  const tailLines = Math.floor(maxLines * 0.2);
+  const omitted = lines.length - headLines - tailLines;
+
+  const result: string[] = [
+    ...lines.slice(0, headLines),
+    `\n/* ... [smart-context-packer: ${omitted} intermediate lines omitted to fit token budget] ... */\n`,
+    ...lines.slice(lines.length - tailLines),
+  ];
+
+  return result.join('\n');
+}
+

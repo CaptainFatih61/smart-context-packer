@@ -153,6 +153,20 @@ export class ContextFormatter {
       sections.push('');
     }
 
+    // 9. Active Task Directive (if present)
+    const taskDirective = (graph as any).taskDirective || this.options.taskDirective;
+    if (taskDirective) {
+      sections.push(taskDirective);
+      sections.push('');
+    }
+
+    // 10. External Frameworks & Dependencies (if present)
+    const dependenciesManifest = (graph as any).dependenciesManifest || this.options.dependenciesManifest;
+    if (dependenciesManifest) {
+      sections.push(dependenciesManifest);
+      sections.push('');
+    }
+
     // 9. File Contents (unless treeOnly)
     if (!this.options.treeOnly) {
       sections.push('## Packed Files');
@@ -252,6 +266,20 @@ export class ContextFormatter {
       xml.push('  <repo_map>');
       xml.push(`<![CDATA[\n${repoMapText}\n]]>`);
       xml.push('  </repo_map>');
+    }
+
+    const taskDirective = (graph as any).taskDirective || this.options.taskDirective;
+    if (taskDirective) {
+      xml.push('  <task_directive>');
+      xml.push(`<![CDATA[\n${taskDirective}\n]]>`);
+      xml.push('  </task_directive>');
+    }
+
+    const dependenciesManifest = (graph as any).dependenciesManifest || this.options.dependenciesManifest;
+    if (dependenciesManifest) {
+      xml.push('  <dependencies_manifest>');
+      xml.push(`<![CDATA[\n${dependenciesManifest}\n]]>`);
+      xml.push('  </dependencies_manifest>');
     }
 
     if (!this.options.treeOnly) {

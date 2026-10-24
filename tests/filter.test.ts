@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { FileFilter, redactSecrets, extractSkeleton } from '../src/filter.js';
+import { FileFilter, redactSecrets, extractSkeleton, sliceMassiveFile } from '../src/filter.js';
 
 describe('FileFilter & Security Engine', () => {
   it('correctly ignores node_modules, build outputs, lock files, and binary assets', () => {
@@ -89,5 +89,15 @@ const count = ref(0);
     expect(skeleton).toContain('<!-- [Template omitted for token efficiency in skeleton mode] -->');
     expect(skeleton).not.toContain('<button @click="handleClick">');
     expect(skeleton).toContain("import { ref } from 'vue'");
+  });
+
+  it('slices massive files preserving head and tail', () => {
+    const lines = Array.from({ length: 100 }, (_, i) => `// Line ${i + 1}`);
+    const code = lines.join('\n');
+    const sliced = sliceMassiveFile(code, 30);
+
+    expect(sliced).toContain('// Line 1');
+    expect(sliced).toContain('intermediate lines omitted to fit token budget');
+    expect(sliced).toContain('// Line 100');
   });
 });

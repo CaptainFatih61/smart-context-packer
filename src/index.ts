@@ -12,6 +12,8 @@ import { AstCache } from './cache.js';
 import { BM25CodeSearch } from './query.js';
 import { generateRepoMap } from './repo-map.js';
 import { writeVisualizerReport } from './visualizer.js';
+import { TaskManager, type TaskRecord } from './task.js';
+import { DependencyManifestResolver } from './dependencies.js';
 import fg from 'fast-glob';
 
 export * from './types.js';
@@ -31,6 +33,10 @@ export type { RedactedFinding, RedactResult } from './redactor.js';
 export * from './query.js';
 export { calculatePageRank, generateRepoMap } from './repo-map.js';
 export * from './visualizer.js';
+export * from './task.js';
+export * from './dependencies.js';
+export * from './hud.js';
+export * from './sandbox.js';
 
 /**
  * Main programmatic API to pack dependencies and generate AI context prompts.
@@ -41,11 +47,30 @@ export async function packContext(options: PackOptions): Promise<PackResult> {
   let targets = options.targets ? [...options.targets] : [];
   let gitDiffPatch = options.gitDiffPatch;
 
-  // Resolve targets from query if specified
+  // 1. Resolve active task / plan if specified
+  let activeTaskRecord: TaskRecord | null = null;
+  let taskDirective: string | undefined;
+  if (options.task) {
+    const taskMgr = new TaskManager(cwd);
+    if (typeof options.task === 'string') {
+      activeTaskRecord = taskMgr.createOrSetActiveTask(options.task);
+    } else {
+      activeTaskRecord = taskMgr.getActiveTask();
+    }
+
+    if (activeTaskRecord) {
+      taskDirective = TaskManager.formatTaskDirective(activeTaskRecord);
+      if (targets.length === 0) {
+        targets = taskMgr.discoverTaskSeedFiles(activeTaskRecord.description);
+      }
+    }
+  }
+
+  // 2. Resolve targets from BM25 query if specified
   if (options.query && targets.length === 0) {
     const candidateFiles = fg.sync(['**/*.{ts,tsx,js,jsx,vue,go,rs,py,lua}'], {
       cwd,
-      ignore: ['node_modules/**', 'dist/**', '.git/**', 'coverage/**'],
+      ignore: ['node_modules/**', 'dist/**', '.git/**', 'coverage/**', '.scp/**'],
       absolute: false,
     });
     const searcher = new BM25CodeSearch();
@@ -64,6 +89,7 @@ export async function packContext(options: PackOptions): Promise<PackResult> {
     targets = searchResults.map((r) => r.path);
   }
 
+  // 3. Resolve git diff/staged targets
   if (options.diff || options.staged) {
     const gitFiles = getGitModifiedFiles(cwd, Boolean(options.staged));
     for (const gf of gitFiles) {
@@ -77,7 +103,7 @@ export async function packContext(options: PackOptions): Promise<PackResult> {
   }
 
   if (targets.length === 0) {
-    throw new Error('No target files specified and no matching query or modified Git files detected.');
+    throw new Error('No target files specified and no matching task, query, or modified Git files detected.');
   }
 
   const analyzer = new DependencyAnalyzer({
@@ -132,6 +158,23 @@ export async function packContext(options: PackOptions): Promise<PackResult> {
     });
   }
 
+  // Attach task directive if active
+  if (taskDirective) {
+    (graph as any).taskDirective = taskDirective;
+  }
+
+  // Resolve active third-party dependencies unless disabled
+  let dependenciesManifestText: string | undefined;
+  if (options.includeDeps !== false) {
+    const manifestResolver = new DependencyManifestResolver(cwd);
+    const fileContents = Array.from(graph.nodes.values()).map((n) => n.content);
+    const activeDeps = manifestResolver.resolveActiveDependencies(fileContents);
+    if (activeDeps.length > 0) {
+      dependenciesManifestText = DependencyManifestResolver.formatManifestSection(activeDeps);
+      (graph as any).dependenciesManifest = dependenciesManifestText;
+    }
+  }
+
   const stats = aggregateTokenStats(graph, options.maxTokens);
 
   const formatter = new ContextFormatter({
@@ -140,6 +183,8 @@ export async function packContext(options: PackOptions): Promise<PackResult> {
     includeStatsSummary: options.includeStatsSummary !== false,
     gitDiffPatch,
     repoMapText: repoMapResult?.mapText,
+    taskDirective,
+    dependenciesManifest: dependenciesManifestText,
     redact: options.redact !== false,
   });
 
@@ -178,6 +223,8 @@ export async function packContext(options: PackOptions): Promise<PackResult> {
     memories: graph.memories,
     repoMap: repoMapResult,
     visualizerPath,
+    taskDirective,
+    dependenciesManifest: dependenciesManifestText,
     cacheStats: analyzer.getCacheStats(),
   };
 }

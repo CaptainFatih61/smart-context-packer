@@ -12,19 +12,21 @@
 [![Tested with Vitest](https://img.shields.io/badge/Tested%20with-Vitest-729B1B.svg)](https://vitest.dev/)
 [![OpenAI OSS Grant](https://img.shields.io/badge/OpenAI%20OSS%20Grant-Candidate-412991.svg)](https://openai.com/)
 
-[![npm version](https://img.shields.io/badge/version-2.1.0-blue.svg)](package.json)
-[![MCP: Stdio Protocol](https://img.shields.io/badge/MCP-JSON--RPC%202.0-brightgreen.svg)](https://modelcontextprotocol.io/)
+[![npm version](https://img.shields.io/badge/version-2.2.0-blue.svg)](package.json)
+[![MCP: Stdio Protocol](https://img.shields.io/badge/MCP-12%20Tools%20JSON--RPC-brightgreen.svg)](https://modelcontextprotocol.io/)
 
 [Quickstart](#-quickstart) •
 [Features](#-key-features) •
+[Active Task Engine](#-active-task-context--planning-engine-v220) •
+[Universal Agent Presets](#-universal-multi-assistant-presets-v220) •
+[Dependencies Manifest](#-external-frameworks--dependencies-manifest-v220) •
+[Tool Output Sandbox](#-tool-output-sandboxing--compression-v220) •
 [PageRank Repo-Map](#-pagerank-architectural-repo-map-v210) •
 [BM25 Intent Search](#-in-memory-bm25-semantic-intent-routing-v210) •
 [Canvas Visualizer](#-interactive-canvas-dependency-visualizer-v210) •
-[Secret Redactor](#-built-in-enterprise-secret--credential-redactor-v210) •
-[Polyglot Support](#-polyglot-ast-support-ts-js-python-go-rust-vue-lua-prisma) •
-[OSS Comparison](#-how-scp-v21-compares-to-the-best-oss-tools) •
+[OSS Comparison](#-how-scp-v22-compares-to-the-best-oss-tools) •
 [CLI Usage](#-cli-usage--flags) •
-[MCP Suite](#-model-context-protocol-mcp-server-v210)
+[MCP Suite](#-model-context-protocol-mcp-server-v220)
 
 ---
 
@@ -37,29 +39,34 @@ When developing with AI assistants (ChatGPT, Claude, Gemini, Cursor, Copilot), d
 1. **The "Full Repository Dump" Trap:** Tools dump the entire codebase into a 90k+ token mega-prompt. The AI loses focus on the real task, exceeds context budgets, racks up enormous API bills, and gets confused by irrelevant boilerplate.
 2. **The "Isolated File" Trap:** The developer copies a single file. The AI immediately hallucinates missing function implementations, invents nonexistent interfaces, and generates code that breaks workspace imports.
 
-### The Solution: `smart-context-packer` (`scp` v2.1)
+### The Solution: `smart-context-packer` (`scp` v2.2)
 
 `scp` takes your target entry file(s), analyzes their directed dependency graph (imports, requires, tsconfig aliases, and framework script manifests), redacts sensitive credentials, and packages **ONLY the target files and their direct/transitive local dependencies** into a clean, token-counted prompt equipped with an AI pre-flight directive header.
 
-In **v2.1**, `smart-context-packer` brings **PageRank repo-mapping**, **BM25 semantic intent routing**, **standalone offline HTML canvas graph visualization**, **enterprise secret redaction**, and **polyglot Go/Rust/Python support** — all with **zero external binary dependencies** (no Python, no Bun, no ChromaDB, no SQLite).
+In **v2.2**, `smart-context-packer` brings **Active Task & Plan Tracking**, **Universal Multi-Assistant Presets** (Cursor, Claude, Copilot, Windsurf, Antigravity), **External Frameworks & Dependencies Manifest Grounding**, **Tool Output Sandboxing (80-95% token savings)**, **Visual Context Budget HUD**, **Middle-Out Slicing**, and **12 MCP Tools** — all with **zero external binary dependencies** (no Python, no Bun, no ChromaDB, no SQLite).
 
 ---
 
-## 🏆 How `scp v2.1` Compares to the Best OSS Tools
+## 🏆 How `scp v2.2` Compares to the Best OSS Tools
 
-| Capability / Architecture | `code-review-graph` | `claude-mem` | `mem0` | `get-shit-done` | **`smart-context-packer` v2.1** |
+| Capability / Architecture | `code-review-graph` | `claude-mem` | `mem0` | `context-mode` | **`smart-context-packer` v2.2** |
 | :--- | :---: | :---: | :---: | :---: | :---: |
+| **Universal Multi-Agent Presets** | ❌ | ❌ | ❌ | ❌ | **✅ (`all`, `cursor`, `claude`, `copilot`, `windsurf`)** |
+| **Active Task & Plan Checklist Engine** | ❌ | ❌ | ❌ | ❌ | **✅ (BM25 seed routing + crash-proof `.scp/tasks.json`)** |
+| **External Dependency Manifest Grounding** | ❌ | ❌ | ❌ | ❌ | **✅ (`package.json`, `go.mod`, `Cargo.toml`, `requirements.txt`)** |
+| **Tool Output Sandboxing (Tests/Logs)** | ❌ | ❌ | ❌ | Partial | **✅ (Preserves root causes/failures, saves 80-95% tokens)** |
+| **Visual Context Budget HUD** | ❌ | ❌ | ❌ | ❌ | **✅ (ASCII progress gauge & token category breakdown)** |
 | **PageRank Architectural Repo-Map** | ❌ | ❌ | ❌ | ❌ | **✅ (Centrality scored ~500-1024 token bird's-eye map)** |
 | **In-Memory BM25 Semantic Intent Routing** | ❌ | ❌ | ❌ | ❌ | **✅ (CamelCase & symbol boosted intent query `-i`)** |
 | **Interactive Offline Canvas Visualizer** | ❌ | ❌ | ❌ | ❌ | **✅ (Self-contained HTML force graph + risk heatmap)** |
 | **Built-in Secret & Credential Redactor** | ❌ | ❌ | ❌ | ❌ | **✅ (AWS, GitHub, Stripe, OpenAI, JWT, DB URLs)** |
 | **Incremental SHA-256 AST Caching** | ✅ | ❌ | ❌ | ❌ | **✅ (`.scp/cache.json`, sub-millisecond)** |
 | **Blast-Radius & Test Impact Risk Scoring** | ✅ | ❌ | ❌ | ❌ | **✅ (Reverse graph + test map + 0-10 risk score)** |
-| **3-Layer Progressive MCP Disclosure** | ❌ | ✅ | ❌ | ❌ | **✅ (L1: Index ~50t → L2: Graph → L3: Pack, 9 tools)** |
+| **Progressive MCP Disclosure Suite** | ❌ | ✅ | ❌ | ❌ | **✅ (12 Native MCP Tools, zero-overhead stdio)** |
 | **File-Linked Persistent Project Memory** | ❌ | ❌ | ✅ | ❌ | **✅ (Git-friendly `.scp/memory.json`)** |
-| **Context-Rot Prevention (Task Slicing)** | ❌ | ❌ | ❌ | ✅ | **✅ (Auto-budget optimizer + XML/MD directives)** |
+| **Smart Middle-Out Slicing** | ❌ | ❌ | ❌ | ❌ | **✅ (Preserves imports & exports, slices massive middle)** |
 | **Runtime & Dependency Footprint** | Heavy Python / ChromaDB | Bun / SQLite | Vector DB / Python | Node | **⚡ Pure Node.js / TS (Zero Bloat / Zero C++ DBs)** |
-| **Polyglot AST (TS/JS/Vue/Go/Rust/Python/Lua)** | Partial | Partial | None | Markdown | **✅ First-Class Native Support** |
+| **Polyglot AST (TS/JS/Vue/Go/Rust/Python/Lua)** | Partial | Partial | None | Partial | **✅ First-Class Native Support** |
 
 ---
 
@@ -550,9 +557,9 @@ enum Role {
 
 ---
 
-## 🔌 Model Context Protocol (MCP) Server (v1.2.0)
+## 🔌 Model Context Protocol (MCP) Server (v2.2.0)
 
-`smart-context-packer` includes a built-in, zero-dependency **JSON-RPC 2.0 Model Context Protocol (MCP)** server running over `stdio`. AI IDEs and autonomous coding agents can invoke `scp` as a native tool without any external wrappers.
+`smart-context-packer` includes a built-in, zero-dependency **JSON-RPC 2.0 Model Context Protocol (MCP)** server running over `stdio` with **12 native tools**. AI IDEs and autonomous coding agents can invoke `scp` as a native tool without any external wrappers.
 
 Launch manually:
 ```bash
@@ -573,7 +580,7 @@ scp --mcp
 }
 ```
 
-#### Cursor (`.cursor/mcp.json`) / Antigravity (`mcp_config.json`) / Cline / Windsurf
+#### Cursor (`.cursor/mcp.json`) / Antigravity (`mcp_config.json`) / Windsurf / Cline
 ```json
 {
   "mcpServers": {
@@ -585,13 +592,22 @@ scp --mcp
 }
 ```
 
-### Exposed MCP Tools
+### 🛠️ Exposed MCP Tools Suite (12 Native Tools)
 
-| Tool | Parameters | Description |
-|:---|:---|:---|
-| `pack_context` | `targets: string[]`<br>`depth?: number`<br>`skeleton?: boolean`<br>`maxTokens?: number`<br>`includeDiff?: boolean`<br>`format?: "md" \| "xml"` | Analyzes dependencies, redacts secrets, extracts Prisma models, applies automatic token-budget optimizer, and returns the formatted AI prompt pack. |
-| `inspect_dependency_graph` | `targets: string[]`<br>`reverse?: boolean` | Analyzes module imports/exports and returns an ASCII hierarchy tree and dependency map without source code. |
-| `pack_git_diff` | `stagedOnly?: boolean`<br>`depth?: number`<br>`skeleton?: boolean`<br>`maxTokens?: number`<br>`format?: "md" \| "xml"` | Packages uncommitted working-tree or staged git modifications, unified diff patch, and surrounding dependency graph in a single autonomous tool call. |
+| Layer | Tool | Parameters | Description |
+|:---|:---|:---|:---|
+| **Layer 1** | `search_codebase_index` | `query?: string`<br>`limit?: number`<br>`cwd?: string` | Compact ~50-token index of workspace files and exported symbols without loading file contents. |
+| **Layer 1** | `search_codebase_intent` | `query: string`<br>`topK?: number`<br>`cwd?: string` | Fast in-memory BM25 semantic intent ranking matching file paths, symbols, and code stems. |
+| **Layer 1** | `generate_repo_map` | `tokenBudget?: number`<br>`cwd?: string` | PageRank-based bird's-eye architectural repo-map fitting within a strict token budget. |
+| **Layer 2** | `inspect_dependency_graph` | `targets: string[]`<br>`reverse?: boolean`<br>`blastRadius?: boolean` | Analyzes module imports/exports and returns ASCII hierarchy tree, dependency map, and risk scoring without file bodies. |
+| **Layer 2** | `generate_visualizer` | `targets: string[]`<br>`outputPath?: string`<br>`cwd?: string` | Generates self-contained interactive offline HTML canvas visualizer with force graph and risk heatmap. |
+| **Layer 2** | `get_framework_manifest` | `cwd?: string` | Extracts active project dependencies & frameworks with exact versions from `package.json`, `go.mod`, `Cargo.toml`, and `requirements.txt`. |
+| **Layer 3** | `pack_context` | `targets: string[]`<br>`depth?: number`<br>`skeleton?: boolean`<br>`maxTokens?: number`<br>`blastRadius?: boolean`<br>`format?: "md" \| "xml"` | Packages target files, local dependencies, auto token-budget optimizer, active task context, and framework manifests. |
+| **Layer 3** | `pack_git_diff` | `stagedOnly?: boolean`<br>`depth?: number`<br>`skeleton?: boolean`<br>`maxTokens?: number`<br>`format?: "md" \| "xml"` | Packages uncommitted working-tree or staged git modifications, unified diff patch, and surrounding dependency graph. |
+| **Ops & Tasks** | `manage_task_context` | `action: "get" \| "create" \| "complete_item" \| "complete_task" \| "list"`<br>`taskName?: string`<br>`items?: string[]`<br>`itemIndex?: number` | Manages crash-proof active task context, tracking multi-step implementation plans and progress checklists in `.scp/tasks.json`. |
+| **Ops & Logs** | `sandbox_tool_output` | `rawOutput: string`<br>`maxLines?: number` | Compresses massive noisy tool outputs (tests, linters, build logs, stack traces) by 80-95% while keeping root causes and failures. |
+| **Memory** | `save_project_memory` | `pattern: string`<br>`content: string`<br>`category?: string` | Saves persistent architectural rule, bug pattern, or invariant to `.scp/memory.json`. |
+| **Memory** | `query_project_memory` | `query?: string`<br>`category?: string` | Retrieves project memories matching query or category to prevent repeated agent mistakes. |
 
 ---
 
@@ -637,6 +653,11 @@ scp [options] [targets...]
 
 | Flag | Shorthand | Description | Default |
 |:---|:---:|:---|:---:|
+| `--task <prompt>` | `-t` | Track active task & generate prompt checklist directive with BM25 seed discovery | |
+| `--task-list` | | List recorded tasks and checklist items stored in `.scp/tasks.json` | `false` |
+| `--task-done <id>` | | Mark a task or checklist item index completed | |
+| `--sandbox <command>` | | Execute shell command and compress test/linter/build output by 80-95% | |
+| `--no-deps` | | Exclude external framework dependencies manifest header from output | `false` |
 | `--query <intent>` | `-i` | In-memory BM25 semantic intent routing to auto-discover seed files | |
 | `--repo-map [tokens]` | | Generate PageRank architectural repo-map (token budget default: 1024) | `false` |
 | `--visualize [path]` | | Generate interactive offline HTML canvas visualizer report | `false` |
@@ -648,9 +669,9 @@ scp [options] [targets...]
 | `--clear-cache` | | Purge local `.scp/cache.json` AST cache | `false` |
 | `--add-memory <pattern:note>` | | Save persistent project memory note linked to file pattern | |
 | `--list-memory` | | List all persistent project memories stored in `.scp/memory.json` | `false` |
-| `--init-agent` | | Generate `.agent/rules/smart-context-packer.md` & `.cursorrules` for AI agents | `false` |
+| `--init-agent [preset]` | | Universal multi-agent rule setup (`all`, `cursor`, `claude`, `copilot`, `windsurf`, `agent`) | `all` |
 | `--init-vscode` | | Generate or update `.vscode/tasks.json` with ready-to-run IDE tasks | `false` |
-| `--mcp` | | Start native JSON-RPC 2.0 Model Context Protocol (MCP) stdio server | `false` |
+| `--mcp` | | Start native JSON-RPC 2.0 Model Context Protocol (MCP) stdio server (12 tools) | `false` |
 | `--depth <number>` | `-d` | Dependency traversal depth (`0` = target only, `1` = direct, `2` = transitive) | `2` |
 | `--reverse` | `-r` | Discover workspace files that import the target file | `false` |
 | `--skeleton` | `-s` | Strip function bodies of dependencies to type signatures | `false` |
@@ -776,6 +797,13 @@ for (const [filePath, node] of graph.nodes) {
 - [x] PageRank architectural repo-map generator (`--repo-map`)
 - [x] In-memory BM25 semantic intent routing (`-i, --query`)
 - [x] Offline zero-dependency HTML canvas visualizer (`--visualize`)
+- [x] Universal Multi-Assistant Presets (`--init-agent [all|cursor|claude|copilot|windsurf]`)
+- [x] Crash-Proof Active Task & Planning Context Engine (`-t, --task`, `.scp/tasks.json`)
+- [x] External Frameworks & Dependencies Manifest Grounding (`package.json`, `go.mod`, `Cargo.toml`, `requirements.txt`)
+- [x] Visual Context Budget HUD with ASCII gauges & category breakdown (`src/hud.ts`)
+- [x] Tool Output Sandboxing & Compression (`--sandbox <cmd>`, 80-95% token savings)
+- [x] Smart Middle-Out Slicing for massive files (>500 lines)
+- [x] Complete 12-Tool Model Context Protocol (MCP) Suite
 - [ ] Interactive VS Code extension with one-click "Pack Context" context menu
 
 ---

@@ -28,7 +28,7 @@ describe('Model Context Protocol (MCP) Server', () => {
     expect(res?.id).toBe(1);
     expect(res?.result).toHaveProperty('protocolVersion');
     expect((res?.result as any).serverInfo.name).toBe('smart-context-packer');
-    expect((res?.result as any).serverInfo.version).toBe('2.1.0');
+    expect((res?.result as any).serverInfo.version).toBe('2.2.0');
   });
 
   it('handles ping request', async () => {
@@ -53,7 +53,7 @@ describe('Model Context Protocol (MCP) Server', () => {
     expect(res?.id).toBe(3);
     const tools = (res?.result as any).tools;
     expect(Array.isArray(tools)).toBe(true);
-    expect(tools.length).toBe(9);
+    expect(tools.length).toBe(12);
 
     const names = tools.map((t: any) => t.name);
     expect(names).toContain('search_codebase_index');
@@ -65,6 +65,9 @@ describe('Model Context Protocol (MCP) Server', () => {
     expect(names).toContain('generate_repo_map');
     expect(names).toContain('search_codebase_intent');
     expect(names).toContain('generate_visualizer');
+    expect(names).toContain('manage_task_context');
+    expect(names).toContain('get_framework_manifest');
+    expect(names).toContain('sandbox_tool_output');
   });
 
   it('calls inspect_dependency_graph tool', async () => {
@@ -330,10 +333,128 @@ describe('Model Context Protocol (MCP) Server', () => {
     }
   });
 
+  it('calls manage_task_context MCP tool (create, get, complete_item, list)', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'scp-mcp-task-'));
+    try {
+      // 1. Create task
+      const createRes = await server.handleMessage({
+        jsonrpc: '2.0',
+        id: 15,
+        method: 'tools/call',
+        params: {
+          name: 'manage_task_context',
+          arguments: {
+            cwd: tmpDir,
+            action: 'create',
+            taskName: 'Refactor Authentication',
+            items: ['Audit tokens', 'Add refresh token support', 'Write tests'],
+          },
+        },
+      });
+      expect(createRes?.id).toBe(15);
+      const createText = (createRes?.result as any).content[0].text;
+      expect(createText).toContain('Active task created successfully!');
+
+      // 2. Get active task directive
+      const getRes = await server.handleMessage({
+        jsonrpc: '2.0',
+        id: 16,
+        method: 'tools/call',
+        params: {
+          name: 'manage_task_context',
+          arguments: { cwd: tmpDir, action: 'get' },
+        },
+      });
+      expect(getRes?.id).toBe(16);
+      const getText = (getRes?.result as any).content[0].text;
+      expect(getText).toContain('Refactor Authentication');
+      expect(getText).toContain('[ ] Audit tokens');
+
+      // 3. Complete item
+      const itemRes = await server.handleMessage({
+        jsonrpc: '2.0',
+        id: 17,
+        method: 'tools/call',
+        params: {
+          name: 'manage_task_context',
+          arguments: { cwd: tmpDir, action: 'complete_item', itemIndex: 0 },
+        },
+      });
+      expect(itemRes?.id).toBe(17);
+      const itemText = (itemRes?.result as any).content[0].text;
+      expect(itemText).toContain('marked completed');
+
+      // 4. List tasks
+      const listRes = await server.handleMessage({
+        jsonrpc: '2.0',
+        id: 18,
+        method: 'tools/call',
+        params: {
+          name: 'manage_task_context',
+          arguments: { cwd: tmpDir, action: 'list' },
+        },
+      });
+      expect(listRes?.id).toBe(18);
+      const listText = (listRes?.result as any).content[0].text;
+      expect(listText).toContain('Refactor Authentication');
+      expect(listText).toContain('IN PROGRESS');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('calls get_framework_manifest MCP tool', async () => {
+    const res = await server.handleMessage({
+      jsonrpc: '2.0',
+      id: 19,
+      method: 'tools/call',
+      params: {
+        name: 'get_framework_manifest',
+        arguments: { cwd: sampleAppDir },
+      },
+    });
+
+    expect(res?.id).toBe(19);
+    expect(res?.error).toBeUndefined();
+    const content = (res?.result as any).content[0].text;
+    expect(content).toContain('ACTIVE FRAMEWORKS & DEPENDENCIES');
+    expect(content).toContain('express');
+  });
+
+  it('calls sandbox_tool_output MCP tool', async () => {
+    const noisyOutput = [
+      'PASS tests/unit/auth.test.ts',
+      '  ✓ generates valid JWT token (12ms)',
+      '  ✓ refreshes expired token (14ms)',
+      'FAIL tests/unit/payment.test.ts',
+      '  ✕ charges card with Stripe SDK (45ms)',
+      '      Error: StripeCardError: Card was declined',
+      '        at Object.<anonymous> (tests/unit/payment.test.ts:35:12)',
+      'Test Suites: 1 failed, 1 passed, 2 total',
+    ].join('\n');
+
+    const res = await server.handleMessage({
+      jsonrpc: '2.0',
+      id: 20,
+      method: 'tools/call',
+      params: {
+        name: 'sandbox_tool_output',
+        arguments: { rawOutput: noisyOutput },
+      },
+    });
+
+    expect(res?.id).toBe(20);
+    expect(res?.error).toBeUndefined();
+    const content = (res?.result as any).content[0].text;
+    expect(content).toContain('TOOL OUTPUT SANDBOX');
+    expect(content).toContain('charges card with Stripe SDK');
+    expect(content).toContain('StripeCardError');
+  });
+
   it('returns error for unknown tool call', async () => {
     const res = await server.handleMessage({
       jsonrpc: '2.0',
-      id: 15,
+      id: 21,
       method: 'tools/call',
       params: {
         name: 'unknown_tool',
@@ -341,7 +462,7 @@ describe('Model Context Protocol (MCP) Server', () => {
       },
     });
 
-    expect(res?.id).toBe(15);
+    expect(res?.id).toBe(21);
     expect(res?.error).toBeDefined();
     expect(res?.error?.code).toBe(-32601);
   });

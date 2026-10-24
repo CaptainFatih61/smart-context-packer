@@ -79,6 +79,9 @@ import { ProjectMemoryManager } from './memory.js';
 import { generateRepoMap } from './repo-map.js';
 import { BM25CodeSearch } from './query.js';
 import { DependencyAnalyzer } from './analyzer.js';
+import { TaskManager } from './task.js';
+import { DependencyManifestResolver } from './dependencies.js';
+import { sandboxOutput } from './sandbox.js';
 
 export const MCP_TOOLS = [
   {
@@ -361,6 +364,77 @@ export const MCP_TOOLS = [
       required: ['targets'],
     },
   },
+  {
+    name: 'manage_task_context',
+    description:
+      'Manage crash-proof active task context, tracking multi-step implementation plans and progress checklists in .scp/tasks.json',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          enum: ['get', 'create', 'complete_item', 'complete_task', 'list'],
+          description:
+            'Task action to perform: "get" active task, "create" a new task, "complete_item", "complete_task", or "list" all tasks',
+        },
+        taskName: {
+          type: 'string',
+          description: 'Name/title of task (required for "create")',
+        },
+        items: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'List of checklist steps for the new task (optional for "create")',
+        },
+        itemIndex: {
+          type: 'number',
+          description: '0-based index of checklist item to mark completed (required for "complete_item")',
+        },
+        taskId: {
+          type: 'string',
+          description: 'Optional task ID to target; defaults to currently active task',
+        },
+        cwd: {
+          type: 'string',
+          description: 'Workspace root directory (defaults to current project root)',
+        },
+      },
+      required: ['action'],
+    },
+  },
+  {
+    name: 'get_framework_manifest',
+    description:
+      'Extract active project dependencies and frameworks with exact resolved versions from package.json, go.mod, Cargo.toml, requirements.txt to prevent API hallucinations',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        cwd: {
+          type: 'string',
+          description: 'Workspace root directory (defaults to current project root)',
+        },
+      },
+    },
+  },
+  {
+    name: 'sandbox_tool_output',
+    description:
+      'Compress massive noisy tool outputs (tests, linters, build logs, stack traces) by up to 95% while keeping root causes, failures, and file locations',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        rawOutput: {
+          type: 'string',
+          description: 'Raw stdout/stderr text output from a command, test run, or build tool',
+        },
+        maxLines: {
+          type: 'number',
+          description: 'Maximum lines to retain (defaults to 100)',
+        },
+      },
+      required: ['rawOutput'],
+    },
+  },
 ];
 
 /**
@@ -399,7 +473,7 @@ export class McpServer {
               },
               serverInfo: {
                 name: 'smart-context-packer',
-                version: '2.1.0',
+                version: '2.2.0',
               },
             },
           };
@@ -834,6 +908,192 @@ export class McpServer {
                   {
                     type: 'text',
                     text: `✔ Interactive Visualizer generated successfully!\nReport file: ${packResult.visualizerPath}`,
+                  },
+                ],
+              },
+            };
+          }
+
+          if (toolName === 'manage_task_context') {
+            const effectiveCwd = resolveEffectiveCwd([], args.cwd as string | undefined);
+            const taskMgr = new TaskManager(effectiveCwd);
+            const action = String(args.action || 'get');
+
+            if (action === 'create') {
+              const description = String(args.taskName || args.description || 'Untitled Task');
+              const items = Array.isArray(args.items) ? args.items.map(String) : [];
+              const task = taskMgr.createOrSetActiveTask(description, items);
+              return {
+                jsonrpc: '2.0',
+                id,
+                result: {
+                  content: [
+                    {
+                      type: 'text',
+                      text: `✔ Active task created successfully!\nID: ${task.id}\nObjective: ${task.description}\nSteps: ${task.items.length}\nCreated at: ${task.createdAt}`,
+                    },
+                  ],
+                },
+              };
+            }
+
+            if (action === 'complete_item') {
+              const target =
+                args.itemIndex !== undefined
+                  ? `step_${Number(args.itemIndex) + 1}`
+                  : String(args.itemText || args.identifier || '');
+              const ok = taskMgr.completeItem(target);
+              if (!ok) {
+                return {
+                  jsonrpc: '2.0',
+                  id,
+                  result: {
+                    content: [{ type: 'text', text: 'No active task or valid item found to complete.' }],
+                  },
+                };
+              }
+              const active = taskMgr.getActiveTask();
+              const remaining = active ? active.items.filter((i) => !i.completed).length : 0;
+              const total = active ? active.items.length : 0;
+              return {
+                jsonrpc: '2.0',
+                id,
+                result: {
+                  content: [
+                    {
+                      type: 'text',
+                      text: `✔ Task step marked completed in task "${active?.description || ''}".\nRemaining open steps: ${remaining}/${total}`,
+                    },
+                  ],
+                },
+              };
+            }
+
+            if (action === 'complete_task') {
+              const taskId = args.taskId ? String(args.taskId) : undefined;
+              const targetTask = taskId ? taskMgr.listTasks().find((t) => t.id === taskId) : taskMgr.getActiveTask();
+              const desc = targetTask?.description || 'Active task';
+              const ok = taskMgr.completeTask(taskId);
+              if (!ok) {
+                return {
+                  jsonrpc: '2.0',
+                  id,
+                  result: {
+                    content: [{ type: 'text', text: 'No active task found to mark complete.' }],
+                  },
+                };
+              }
+              return {
+                jsonrpc: '2.0',
+                id,
+                result: {
+                  content: [{ type: 'text', text: `✔ Task "${desc}" marked as completed!` }],
+                },
+              };
+            }
+
+            if (action === 'list') {
+              const tasks = taskMgr.listTasks();
+              if (tasks.length === 0) {
+                return {
+                  jsonrpc: '2.0',
+                  id,
+                  result: {
+                    content: [{ type: 'text', text: 'No tasks registered in this workspace yet.' }],
+                  },
+                };
+              }
+              const text = tasks
+                .map((t) => {
+                  const status = t.status === 'in_progress' ? '🔄 IN PROGRESS' : '✅ COMPLETED';
+                  const doneCount = t.items.filter((i) => i.completed).length;
+                  return `- [${t.id}] **${t.description}** (${status}) — ${doneCount}/${t.items.length} steps`;
+                })
+                .join('\n');
+              return {
+                jsonrpc: '2.0',
+                id,
+                result: {
+                  content: [{ type: 'text', text: `<!-- SMART CONTEXT PACKER: TASK LIST -->\n\n${text}` }],
+                },
+              };
+            }
+
+            // Default action: 'get'
+            const active = taskMgr.getActiveTask();
+            if (!active) {
+              return {
+                jsonrpc: '2.0',
+                id,
+                result: {
+                  content: [{ type: 'text', text: 'No active task currently in progress.' }],
+                },
+              };
+            }
+
+            const directive = TaskManager.formatTaskDirective(active);
+            return {
+              jsonrpc: '2.0',
+              id,
+              result: {
+                content: [{ type: 'text', text: directive }],
+              },
+            };
+          }
+
+          if (toolName === 'get_framework_manifest') {
+            const effectiveCwd = resolveEffectiveCwd([], args.cwd as string | undefined);
+            const resolver = new DependencyManifestResolver(effectiveCwd);
+            const manifestMap = resolver.loadWorkspaceManifest();
+            const entries = Array.from(manifestMap.values());
+
+            if (entries.length === 0) {
+              return {
+                jsonrpc: '2.0',
+                id,
+                result: {
+                  content: [
+                    {
+                      type: 'text',
+                      text: `No package manifest found or no dependencies detected in workspace: ${effectiveCwd}`,
+                    },
+                  ],
+                },
+              };
+            }
+
+            const text = entries
+              .map((e) => `- **${e.name}**: \`${e.version}\` (${e.source})`)
+              .join('\n');
+
+            return {
+              jsonrpc: '2.0',
+              id,
+              result: {
+                content: [
+                  {
+                    type: 'text',
+                    text: `<!-- SMART CONTEXT PACKER: ACTIVE FRAMEWORKS & DEPENDENCIES -->\n\nDetected ${entries.length} workspace dependencies:\n\n${text}`,
+                  },
+                ],
+              },
+            };
+          }
+
+          if (toolName === 'sandbox_tool_output') {
+            const raw = String(args.rawOutput || '');
+            const maxLines = typeof args.maxLines === 'number' ? args.maxLines : 100;
+            const res = sandboxOutput(raw, maxLines);
+
+            const header = `<!-- TOOL OUTPUT SANDBOX (Saved ${res.compressionRatio}% tokens: ${res.originalTokens} → ${res.sandboxedTokens}) -->\n\n`;
+            return {
+              jsonrpc: '2.0',
+              id,
+              result: {
+                content: [
+                  {
+                    type: 'text',
+                    text: header + res.output,
                   },
                 ],
               },

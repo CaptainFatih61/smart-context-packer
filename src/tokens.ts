@@ -2,6 +2,7 @@ import path from 'node:path';
 import pc from 'picocolors';
 import type { FileStats, TokenStats, DependencyGraph } from './types.js';
 import { extractSkeleton } from './filter.js';
+export { renderAsciiProgressBar } from './hud.js';
 
 export const CONTEXT_WINDOW_128K = 131072;
 export const CONTEXT_WINDOW_200K = 204800;
