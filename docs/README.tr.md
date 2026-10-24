@@ -241,7 +241,19 @@ Test çalıştırıcılarının (Vitest, Jest), derleyicilerin veya linter'ları
 13. `jetbrains`: `.idea/ai/instructions.md`
 
 ### 4.15 15 Araçlı Model Context Protocol (MCP) Sunucusu (`mcp.ts`)
-`scp --mcp` komutuyla başlatılan yerel JSON-RPC 2.0 sunucusu, AI modellerinin proje üzerinde 4 kademeli bağlam stratejisiyle çalışmasını sağlar.
+`scp --mcp` komutuyla başlatılan yerel JSON-RPC 2.0 sunucusu, AI modellerinin proje üzerinde 4 kademeli bağlam stratejisiyle çalışmasını sağlar. Herhangi bir yerel kuruluma gerek kalmadan, doğrudan NPM üzerinden sıfır kurulumla (zero-install) tüm yapay zeka istemcilerine eklenebilir:
+
+#### Sıfır Kurulum MCP İstemci Yapılandırması (Claude Desktop, Cursor, Antigravity, Windsurf, Cline, OpenCode):
+```json
+{
+  "mcpServers": {
+    "smart-context-packer": {
+      "command": "npx",
+      "args": ["-y", "smart-context-packer", "--mcp"]
+    }
+  }
+}
+```
 
 ### 4.16 Git Çalışma Ağacı & Diff Entegrasyonu (`git.ts`)
 `--diff` veya `--staged` bayrakları:

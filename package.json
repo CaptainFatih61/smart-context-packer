@@ -58,8 +58,8 @@
     }
   },
   "bin": {
-    "smart-context-packer": "./dist/cli.js",
-    "scp": "./dist/cli.js"
+    "smart-context-packer": "dist/cli.js",
+    "scp": "dist/cli.js"
   },
   "files": [
     "dist",
