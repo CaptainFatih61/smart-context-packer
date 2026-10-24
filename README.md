@@ -1,5 +1,7 @@
 <div align="center">
 
+🇬🇧 English | [🇹🇷 Türkçe Dokümantasyon](docs/README.tr.md)
+
 # 📦 `smart-context-packer` (`scp`)
 
 **High-Fidelity AI Context Packer & Multi-Language Dependency Graph Analyzer**
@@ -7,13 +9,12 @@
 *Pack only the code your AI assistant actually needs to see — zero hallucinations, minimal tokens.*
 
 [![CI](https://github.com/CaptainFatih61/smart-context-packer/actions/workflows/ci.yml/badge.svg)](https://github.com/CaptainFatih61/smart-context-packer/actions)
+[![NPM Version](https://img.shields.io/npm/v/smart-context-packer.svg?color=blue)](https://www.npmjs.com/package/smart-context-packer)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![TypeScript: Strict](https://img.shields.io/badge/TypeScript-Strict%20NodeNext-blue.svg)](https://www.typescriptlang.org/)
 [![Tested with Vitest](https://img.shields.io/badge/Tested%20with-Vitest-729B1B.svg)](https://vitest.dev/)
 [![OpenAI OSS Grant](https://img.shields.io/badge/OpenAI%20OSS%20Grant-Candidate-412991.svg)](https://openai.com/)
-
-[![npm version](https://img.shields.io/badge/version-2.3.0-blue.svg)](package.json)
-[![MCP: Stdio Protocol](https://img.shields.io/badge/MCP-15%20Tools%20JSON--RPC-brightgreen.svg)](https://modelcontextprotocol.io/)
+[![MCP: 15 Tools](https://img.shields.io/badge/MCP-15%20Tools%20JSON--RPC-brightgreen.svg)](https://modelcontextprotocol.io/)
 
 [Quickstart](#-quickstart) •
 [Features](#-key-features) •
@@ -428,33 +429,51 @@ Whenever files matching pattern globs are packed (either via CLI `scp`, VS Code 
 
 ---
 
-## 🌐 3-Layer Progressive Disclosure MCP Engine (v2.0.0)
+## 🌐 4-Layer Progressive Disclosure MCP Engine (v2.3.0)
 
-Inspired by `claude-mem`'s multi-tier context pattern, `scp` v2.0 provides 6 native MCP tools organized into 3 progressive tiers so AI coding agents never waste context:
+Inspired by `claude-mem` and modern agentic architectures, `scp` v2.3 organizes **15 native MCP tools** into **4 progressive disclosure layers** so autonomous AI agents never exhaust context windows:
 
 ```text
-┌────────────────────────────────────────────────────────┐
-│  Layer 1: search_codebase_index                        │
-│  ~30-50 tokens per file: path + size + exportedSymbols │
-└───────────────────────┬────────────────────────────────┘
-                        ▼
-┌────────────────────────────────────────────────────────┐
-│  Layer 2: inspect_dependency_graph                     │
-│  ASCII Tree + Dependency Map + Circulars + Blast Radius│
-└───────────────────────┬────────────────────────────────┘
-                        ▼
-┌────────────────────────────────────────────────────────┐
-│  Layer 3: pack_context & pack_git_diff                 │
-│  Full/Skeleton Source Code + Mapped Tests + Memories   │
-└────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────┐
+│  Layer 1: Index & Discovery (~50t compact index, BM25, Repo-Map)       │
+│  search_codebase_index | search_codebase_intent | generate_repo_map    │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│  Layer 2: Topology & Architecture (Imports, Visualizer, Manifests)     │
+│  inspect_dependency_graph | generate_visualizer | framework_manifest   │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│  Layer 3: Slicing & Context Packing (Budget-Optimized Slices & Diffs)  │
+│  pack_context | pack_git_diff                                          │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│  Layer 4: Surgical Fetch & Verification (<200t Symbols, Tests, Leaks) │
+│  extract_symbol_definition | get_impacted_tests | audit_context_leak   │
+└────────────────────────────────────────────────────────────────────────┘
 ```
 
-1. **`search_codebase_index` (Layer 1)**: Cheaply search workspace files and exported symbols without loading file bodies.
-2. **`inspect_dependency_graph` (Layer 2)**: Inspect architecture, depth hierarchy, and circular warnings.
-3. **`pack_context` (Layer 3)**: Package full or skeletonized file bodies with token budgets.
-4. **`pack_git_diff`**: Review uncommitted modified or staged Git changes.
-5. **`save_project_memory`**: Persist decisions and gotchas into `.scp/memory.json`.
-6. **`query_project_memory`**: Search and retrieve architectural rules.
+1. **Layer 1 (Discovery & Index)**:
+   - `search_codebase_index`: Cheaply inspect workspace files, sizes, and exported symbols (~50 tokens per file).
+   - `search_codebase_intent`: Natural-language BM25 semantic intent ranking matching identifiers and stems.
+   - `generate_repo_map`: PageRank architectural bird's-eye map fitting within a strict token budget.
+2. **Layer 2 (Topology & Architecture)**:
+   - `inspect_dependency_graph`: Inspect imports, exports, circular cycles, and risk scores without file bodies.
+   - `generate_visualizer`: Interactive offline HTML force-directed canvas report.
+   - `get_framework_manifest`: Grounded workspace dependencies across 12 manifest formats.
+3. **Layer 3 (Context Slicing)**:
+   - `pack_context`: Package full or skeletonized file bodies with automatic token-budget optimizer.
+   - `pack_git_diff`: Package uncommitted working tree or staged Git modifications and diff patch.
+4. **Layer 4 (Surgical Extraction & Auditing)**:
+   - `extract_symbol_definition`: Surgically extract exact function, class, or struct definitions in <200 tokens.
+   - `get_impacted_tests`: Locate all unit tests covering modified targets via reverse graph traversal.
+   - `audit_context_leak`: Scan prompt text or files for accidental secret or credential leaks.
+5. **Ops & Cross-Session Memory**:
+   - `manage_task_context`: Crash-proof implementation plans and progress checklists (`.scp/tasks.json`).
+   - `sandbox_tool_output`: Compress noisy test and linter outputs by 80-95%.
+   - `save_project_memory` & `query_project_memory`: Persistent cross-session architectural rules (`.scp/memory.json`).
 
 ---
 

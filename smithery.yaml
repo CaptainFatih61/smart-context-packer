@@ -1,0 +1,9 @@
+# Smithery MCP Server Configuration
+# https://smithery.ai/docs/config
+startCommand:
+  type: stdio
+  config:
+    command: "node"
+    args:
+      - "dist/cli.js"
+      - "--mcp"

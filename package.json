@@ -3,13 +3,21 @@
   "version": "2.3.0",
   "description": "Smart dependency graph analyzer and AI context pack generator for LLM coding assistants",
   "keywords": [
+    "mcp",
+    "model-context-protocol",
     "ai",
-    "context",
-    "prompt-engineering",
     "llm",
-    "dependency-graph",
-    "token-counter",
+    "context-packer",
+    "ast",
+    "skeletonizer",
+    "claude",
+    "cursor",
+    "codex",
     "typescript",
+    "cli",
+    "developer-tools",
+    "blast-radius",
+    "repo-map",
     "csharp",
     "java",
     "kotlin",
@@ -21,10 +29,7 @@
     "ruby",
     "svelte",
     "vue",
-    "lua",
-    "fivem",
-    "mcp",
-    "cli"
+    "lua"
   ],
   "author": "Antigravity Team",
   "license": "MIT",
@@ -57,7 +62,9 @@
     "scp": "./dist/cli.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
     "build": "tsup",
@@ -66,7 +73,8 @@
     "pretest": "npm run build",
     "test": "vitest run",
     "test:watch": "vitest",
-    "prepack": "npm run build"
+    "prepack": "npm run build",
+    "prepublishOnly": "npm run build && npm test"
   },
   "dependencies": {
     "clipboardy": "^4.0.0",

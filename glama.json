@@ -1,0 +1,11 @@
+{
+  "$schema": "https://glama.ai/mcp/schemas/server.json",
+  "name": "smart-context-packer",
+  "description": "High-fidelity AI context packer & multi-language dependency graph analyzer for LLM coding assistants",
+  "maintainers": [
+    "CaptainFatih61"
+  ],
+  "repository": "https://github.com/CaptainFatih61/smart-context-packer",
+  "homepage": "https://github.com/CaptainFatih61/smart-context-packer#readme",
+  "license": "MIT"
+}
