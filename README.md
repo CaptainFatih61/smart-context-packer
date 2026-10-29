@@ -39,18 +39,22 @@ When developing with AI assistants (ChatGPT, Claude, Gemini, Cursor, Copilot, Co
 1. **The "Full Repository Dump" Trap:** Tools dump the entire codebase into a 90k+ token mega-prompt. The AI loses focus on the real task, exceeds context budgets, racks up enormous API bills, and gets confused by irrelevant boilerplate.
 2. **The "Isolated File" Trap:** The developer copies a single file. The AI immediately hallucinates missing function implementations, invents nonexistent interfaces, and generates code that breaks workspace imports.
 
-### The Solution: `smart-context-packer` (`scp` v2.3)
+### The Solution: `smart-context-packer` (`scp` v2.4)
 
 `scp` takes your target entry file(s), analyzes their directed dependency graph across **16 programming languages**, redacts sensitive credentials, and packages **ONLY the target files and their direct/transitive local dependencies** into a clean, token-counted prompt equipped with an AI pre-flight directive header.
 
-In **v2.3.0**, `smart-context-packer` brings **16-Language Ultra-Polyglot AST Support** (C#, Java, Kotlin, C/C++, PHP, Dart, Swift, Ruby, Svelte), **12 Universal AI Agent Presets** (Cursor, Claude, Copilot, Windsurf, OpenCode, Codex, Continue, Zed, Cline/Roo, Aider, JetBrains), **Surgical Layer 4 MCP Suite (15 native tools)**, and **Tool Output Sandboxing (80-95% token savings)** — all with **zero external binary dependencies** (no Python, no Bun, no ChromaDB, no SQLite).
+In **v2.4.0**, `smart-context-packer` brings **Symbol-Level AST Tree-Shaking (`--tree-shake`)**, **Automatic Monorepo Workspace Resolution (`packages/*`, `apps/*`, `pnpm-workspace.yaml`)**, **Git Commit & PR Packing (`--commit`, `--pr`)**, **Live File Watch Mode (`-w, --watch`)**, **16-Language Ultra-Polyglot AST Support**, **12 Universal AI Agent Presets**, and **Surgical Layer 4 MCP Suite (15 native tools)** — all with **zero external binary dependencies** (no Python, no Bun, no ChromaDB, no SQLite).
 
 ---
 
-## 🏆 How `scp v2.3` Compares to the Best OSS Tools
+## 🏆 How `scp v2.4` Compares to the Best OSS Tools
 
-| Capability / Architecture | `code-review-graph` | `claude-mem` | `mem0` | `context-mode` | **`smart-context-packer` v2.3** |
+| Capability / Architecture | `code-review-graph` | `claude-mem` | `mem0` | `context-mode` | **`smart-context-packer` v2.4** |
 | :--- | :---: | :---: | :---: | :---: | :---: |
+| **Symbol-Level AST Tree-Shaking** | ❌ | ❌ | ❌ | ❌ | **✅ (`--tree-shake`, prunes unused exports in deps)** |
+| **Monorepo Workspace Resolution** | ❌ | ❌ | ❌ | ❌ | **✅ (`package.json` workspaces, `pnpm-workspace`, `packages/*`)** |
+| **Commit Range & PR Context Packing** | Partial | ❌ | ❌ | ❌ | **✅ (`--commit HEAD~3..HEAD`, `--pr <id\|url>`)** |
+| **Live File Watch Mode** | ❌ | ❌ | ❌ | ❌ | **✅ (`-w, --watch`, auto-reloads on save)** |
 | **Universal Multi-Agent Presets** | ❌ | ❌ | ❌ | ❌ | **✅ 12 Agents (`all`, `cursor`, `claude`, `copilot`, `windsurf`, `agent`, `opencode`, `codex`, `continue`, `zed`, `clinerules`, `aider`, `jetbrains`)** |
 | **Ultra-Polyglot AST & Manifests** | Partial (2-3) | None | None | Partial | **✅ 16 Languages + 12 Manifests (C#, Java, Kotlin, C++, PHP, Dart, Swift, Ruby, Svelte, TS, Go, Rust, Python, Vue, Lua, Prisma)** |
 | **Surgical Layer 4 MCP Tools** | ❌ | ❌ | ❌ | ❌ | **✅ (`extract_symbol_definition`, `get_impacted_tests`, `audit_context_leak`)** |

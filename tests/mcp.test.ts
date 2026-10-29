@@ -28,7 +28,7 @@ describe('Model Context Protocol (MCP) Server', () => {
     expect(res?.id).toBe(1);
     expect(res?.result).toHaveProperty('protocolVersion');
     expect((res?.result as any).serverInfo.name).toBe('smart-context-packer');
-    expect((res?.result as any).serverInfo.version).toBe('2.3.0');
+    expect((res?.result as any).serverInfo.version).toBe('2.4.0');
   });
 
   it('handles ping request', async () => {

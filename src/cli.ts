@@ -20,7 +20,7 @@ program
   .description(
     '📦 smart-context-packer: AI-optimized dependency graph context packer for LLM coding assistants'
   )
-  .version('2.3.0', '-v, --version', 'Output current version')
+  .version('2.4.0', '-v, --version', 'Output current version')
   .argument('[targets...]', 'Target entry file(s) or directories to analyze and pack')
   .option('-d, --depth <number>', 'Dependency traversal depth (default: 2)', '2')
   .option('-r, --reverse', 'Include reverse dependencies (files importing target)', false)

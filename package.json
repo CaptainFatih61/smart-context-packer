@@ -1,6 +1,6 @@
 {
   "name": "smart-context-packer",
-  "version": "2.3.0",
+  "version": "2.4.0",
   "description": "Smart dependency graph analyzer and AI context pack generator for LLM coding assistants",
   "keywords": [
     "mcp",
@@ -10,6 +10,8 @@
     "context-packer",
     "ast",
     "skeletonizer",
+    "tree-shaking",
+    "monorepo",
     "claude",
     "cursor",
     "codex",
