@@ -483,7 +483,7 @@ for (const [filePath, node] of graph.nodes) {
 Proje, kurumsal düzeyde kararlılık için **Vitest** ile kapsamlı şekilde test edilmiştir.
 
 * **Toplam Test Süiti:** 26 test dosyası
-* **Toplam Birim / Entegrasyon Testi:** 119 test
+* **Toplam Birim / Entegrasyon Testi:** 123 test
 * **Başarı Oranı:** %100 Yeşil (0 hata, 0 uyarı)
 * **Sürekli Entegrasyon (CI):**
   * GitHub Actions üzerinde hem **Node.js 20** hem de **Node.js 22** sürümlerinde Ubuntu ortamında her commit ve tag için otomatik çalıştırılır.

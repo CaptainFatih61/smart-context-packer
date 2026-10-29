@@ -1,8 +1,9 @@
 import path from 'node:path';
 import pc from 'picocolors';
 import type { FileStats, TokenStats, DependencyGraph } from './types.js';
-import { extractSkeleton, sliceMassiveFile } from './filter.js';
-export { renderAsciiProgressBar } from './hud.js';
+import { extractSkeleton, sliceMassiveFile, treeShakeCode } from './filter.js';
+import { buildContextHudData, renderTerminalHud } from './hud.js';
+export { renderAsciiProgressBar, buildContextHudData, renderTerminalHud } from './hud.js';
 
 export const CONTEXT_WINDOW_128K = 131072;
 export const CONTEXT_WINDOW_200K = 204800;
@@ -89,7 +90,12 @@ export function aggregateTokenStats(graph: DependencyGraph, maxTokens?: number):
     let convertedAny = false;
     for (const node of candidates) {
       const ext = path.extname(node.filePath);
-      const skeletonContent = extractSkeleton(node.content, ext);
+      let compressedContent = node.content;
+      if (node.importedSymbols && node.importedSymbols.length > 0 && !node.importedSymbols.includes('*') && !node.isTreeShaken) {
+        compressedContent = treeShakeCode(compressedContent, node.importedSymbols, ext);
+        node.isTreeShaken = true;
+      }
+      const skeletonContent = extractSkeleton(compressedContent, ext);
       const newStats = calculateFileStats(skeletonContent);
 
       const tokenDiff = node.stats.estimatedTokens - newStats.estimatedTokens;
@@ -172,12 +178,35 @@ export function aggregateTokenStats(graph: DependencyGraph, maxTokens?: number):
 export function renderTerminalSummary(
   graph: DependencyGraph,
   stats: TokenStats,
-  destination: { file?: string; clipboard?: boolean }
+  destination: { file?: string; clipboard?: boolean; maxTokens?: number }
 ): string {
   const totalFiles = graph.nodes.size;
   const targetCount = graph.targets.length;
   const depCount = totalFiles - targetCount;
   const skeletonCount = Array.from(graph.nodes.values()).filter((n) => n.isSkeleton).length;
+
+  let targetTokens = 0;
+  let depTokens = 0;
+  for (const node of graph.nodes.values()) {
+    if (node.type === 'target') {
+      targetTokens += node.stats.estimatedTokens;
+    } else {
+      depTokens += node.stats.estimatedTokens;
+    }
+  }
+  const repoMapTokens = (graph as any).repoMapText ? estimateTokensForText((graph as any).repoMapText) : 0;
+  const diffTokens = graph.gitDiffPatch ? estimateTokensForText(graph.gitDiffPatch) : 0;
+  const memoryTokens = graph.memories ? estimateTokensForText(JSON.stringify(graph.memories)) : 0;
+  const taskTokens = (graph as any).taskDirective ? estimateTokensForText((graph as any).taskDirective) : 0;
+  const hudData = buildContextHudData(
+    targetTokens,
+    depTokens,
+    repoMapTokens,
+    diffTokens,
+    memoryTokens,
+    taskTokens,
+    destination.maxTokens
+  );
 
   const pad = (str: string, length: number) => str.padEnd(length);
   const numFmt = (n: number) => n.toLocaleString();
@@ -195,6 +224,8 @@ export function renderTerminalSummary(
     pc.cyan('│ ') + pc.bold(pc.white('Context Window Usage:')) + '                                      ' + pc.cyan('│'),
     pc.cyan('│ ') + pad(pc.gray(' • 128k (GPT-4o):'), 24) + formatPercentage(stats.pct128k) + '                           '.slice(0, 22 - `${stats.pct128k}%`.length) + pc.cyan('│'),
     pc.cyan('│ ') + pad(pc.gray(' • 200k (Claude/Gemini):'), 24) + formatPercentage(stats.pct200k) + '                           '.slice(0, 22 - `${stats.pct200k}%`.length) + pc.cyan('│'),
+    pc.cyan('├─────────────────────────────────────────────────────────────┤'),
+    ...renderTerminalHud(hudData),
     pc.cyan('├─────────────────────────────────────────────────────────────┤'),
   ];
 

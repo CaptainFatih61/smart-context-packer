@@ -2,7 +2,13 @@ import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
 import { describe, it, expect } from 'vitest';
-import { isGitRepository, getGitModifiedFiles, getGitDiffPatch } from '../src/git.js';
+import {
+  isGitRepository,
+  getGitModifiedFiles,
+  getGitDiffPatch,
+  getGitCommitFiles,
+  getGitCommitPatch,
+} from '../src/git.js';
 import { formatContext } from '../src/formatter.js';
 import type { DependencyGraph } from '../src/types.js';
 
@@ -116,6 +122,13 @@ describe('Git Diff & Working Tree Resolver', () => {
 
       const stagedPatch = getGitDiffPatch(tempRepo, true);
       expect(stagedPatch).toContain('staged');
+
+      // Test commit range / single commit resolution (--commit)
+      const commitFiles = getGitCommitFiles(tempRepo, 'HEAD');
+      expect(commitFiles).toContain('file1.ts');
+
+      const commitPatch = getGitCommitPatch(tempRepo, 'HEAD');
+      expect(commitPatch).toContain('export const initial = true;');
     } finally {
       try {
         fs.rmSync(tempRepo, { recursive: true, force: true });

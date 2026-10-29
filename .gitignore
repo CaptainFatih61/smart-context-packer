@@ -7,5 +7,9 @@ coverage/
 .context-pack.md
 .context-pack.xml
 *.local
-.scp/
-**/.scp/
+.scp/cache.json
+.scp/tasks.json
+.scp/visualizer.html
+**/.scp/cache.json
+**/.scp/tasks.json
+**/.scp/visualizer.html

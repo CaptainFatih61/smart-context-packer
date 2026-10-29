@@ -3,7 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import readline from 'node:readline';
 import { packContext } from './index.js';
-import { getGitModifiedFiles } from './git.js';
+import { getGitModifiedFiles, getGitCommitFiles } from './git.js';
 import type { OutputFormat } from './types.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -78,11 +78,13 @@ import { AstCache } from './cache.js';
 import { ProjectMemoryManager } from './memory.js';
 import { generateRepoMap } from './repo-map.js';
 import { BM25CodeSearch } from './query.js';
-import { DependencyAnalyzer } from './analyzer.js';
+import { DependencyAnalyzer, POLYGLOT_GLOB_PATTERN } from './analyzer.js';
 import { TaskManager } from './task.js';
 import { DependencyManifestResolver } from './dependencies.js';
 import { sandboxOutput } from './sandbox.js';
 import { calculateBlastRadius } from './blast-radius.js';
+import { stripStringsAndComments } from './filter.js';
+import { estimateTokensForText } from './tokens.js';
 
 /**
  * Surgically extracts the exact lines of a symbol declaration and body from source code.
@@ -193,8 +195,9 @@ export function extractSymbolFromCode(
 
   for (let i = startIdx; i < lines.length; i++) {
     const line = lines[i]!;
-    const opens = (line.match(/\{/g) || []).length;
-    const closes = (line.match(/\}/g) || []).length;
+    const cleaned = stripStringsAndComments(line);
+    const opens = (cleaned.match(/\{/g) || []).length;
+    const closes = (cleaned.match(/\}/g) || []).length;
 
     if (opens > 0) seenBrace = true;
     braceCount += opens - closes;
@@ -204,7 +207,7 @@ export function extractSymbolFromCode(
       break;
     }
 
-    if (!seenBrace && (line.trim().endsWith(';') || (i > startIdx && !line.startsWith(' ')))) {
+    if (!seenBrace && (cleaned.trim().endsWith(';') || (i > startIdx && !line.startsWith(' ')))) {
       endIdx = i;
       break;
     }
@@ -217,7 +220,7 @@ export function extractSymbolFromCode(
     endLine: endIdx + 1,
     signature,
     codeSnippet: snippet,
-    estimatedTokens: Math.ceil(snippet.length / 4),
+    estimatedTokens: estimateTokensForText(snippet),
   };
 }
 
@@ -241,12 +244,12 @@ export function auditContextContent(content: string): {
   const leakRules: Array<{ type: string; regex: RegExp; description: string }> = [
     {
       type: 'OPENAI_API_KEY',
-      regex: /\bsk-[a-zA-Z0-9]{20,T3BlbkFJ[a-zA-Z0-9]{20,}\b|\bsk-proj-[a-zA-Z0-9_\-]{40,}\b/,
+      regex: /\bsk-[a-zA-Z0-9]{20,}T3BlbkFJ[a-zA-Z0-9]{20,}\b|\bsk-proj-[a-zA-Z0-9_\-]{32,}\b|\bsk-(?!ant-|live_|test_)[a-zA-Z0-9]{32,64}\b/,
       description: 'OpenAI API Secret Key',
     },
     {
       type: 'ANTHROPIC_API_KEY',
-      regex: /\bsk-ant-[a-zA-Z0-9_\-]{30,}\b/,
+      regex: /\bsk-ant-[a-zA-Z0-9_\-]{20,}\b/,
       description: 'Anthropic API Secret Key',
     },
     {
@@ -256,17 +259,27 @@ export function auditContextContent(content: string): {
     },
     {
       type: 'GITHUB_TOKEN',
-      regex: /\b(gh[pousr]_[a-zA-Z0-9]{36,255})\b/,
+      regex: /\b(gh[pousr]_[a-zA-Z0-9]{36,255}|github_pat_[a-zA-Z0-9_]{22,82})\b/,
       description: 'GitHub Personal/OAuth Access Token',
     },
     {
+      type: 'STRIPE_SECRET_KEY',
+      regex: /\b(sk_live_[0-9a-zA-Z]{24,}|rk_live_[0-9a-zA-Z]{24,})\b/,
+      description: 'Stripe Live Secret Key',
+    },
+    {
+      type: 'SLACK_TOKEN',
+      regex: /\b(xox[baprs]-[0-9a-zA-Z]{10,48})\b/,
+      description: 'Slack Bot/User Access Token',
+    },
+    {
       type: 'PRIVATE_KEY',
-      regex: /-----BEGIN\s+(?:RSA\s+)?PRIVATE\s+KEY-----/,
+      regex: /-----BEGIN\s+(?:[A-Z0-9 ]+\s+)?PRIVATE\s+KEY-----/,
       description: 'Asymmetric Private Encryption Key',
     },
     {
       type: 'DATABASE_PASSWORD_URI',
-      regex: /(?:postgres|mysql|mongodb(?:\+srv)?):\/\/[^:\s]+:([^@\s]+)@/i,
+      regex: /(?:postgres|postgresql|mysql|mongodb(?:\+srv)?|redis|mariadb):\/\/[^:\s]+:([^@\s]+)@/i,
       description: 'Database connection string containing raw password',
     },
     {
@@ -392,6 +405,10 @@ export const MCP_TOOLS = [
           type: 'boolean',
           description: 'Strip function/class bodies of dependencies to save tokens',
         },
+        treeShake: {
+          type: 'boolean',
+          description: 'Prune unreferenced exported symbols from dependencies (AST Dead-Code Slicing)',
+        },
         maxTokens: {
           type: 'number',
           description: 'Maximum token budget; automatically skeletonizes deep dependencies to fit',
@@ -436,6 +453,14 @@ export const MCP_TOOLS = [
           type: 'boolean',
           description: 'Package only staged git changes instead of all uncommitted modifications (default: false)',
         },
+        commit: {
+          type: 'string',
+          description: 'Optional Git commit hash, branch, or range (e.g. "HEAD~2..HEAD", "main...feature")',
+        },
+        pr: {
+          type: 'string',
+          description: 'Optional Pull Request number, URL, or branch to package changes for',
+        },
         depth: {
           type: 'number',
           description: 'Dependency traversal depth (default: 2, 0 for target modified files only)',
@@ -443,6 +468,10 @@ export const MCP_TOOLS = [
         skeleton: {
           type: 'boolean',
           description: 'Strip function/class bodies of dependencies to save tokens',
+        },
+        treeShake: {
+          type: 'boolean',
+          description: 'Prune unreferenced exported symbols from dependencies (AST Dead-Code Slicing)',
         },
         maxTokens: {
           type: 'number',
@@ -722,7 +751,7 @@ export const MCP_TOOLS = [
   {
     name: 'audit_context_leak',
     description:
-      'Audit a context block, prompt, or tool output for accidental secret leaks (API keys, private keys, passwords) and token bloat before sending to an LLM',
+      'Audit a context block, prompt, file, or tool output for accidental secret leaks (API keys, private keys, passwords) and token bloat before sending to an LLM',
     inputSchema: {
       type: 'object',
       properties: {
@@ -730,12 +759,19 @@ export const MCP_TOOLS = [
           type: 'string',
           description: 'Source code, prompt text, or tool output to audit for leaks and bloat',
         },
+        contextText: {
+          type: 'string',
+          description: 'Alias for content: prompt text or source code to audit',
+        },
+        filePath: {
+          type: 'string',
+          description: 'Optional file path to load and audit directly from disk',
+        },
         cwd: {
           type: 'string',
           description: 'Workspace root directory (defaults to current project root)',
         },
       },
-      required: ['content'],
     },
   },
 ];
@@ -813,14 +849,11 @@ export class McpServer {
             const limit = typeof args.limit === 'number' && args.limit > 0 ? args.limit : 50;
             const query = typeof args.query === 'string' ? args.query.trim().toLowerCase() : '';
 
-            const files = await fg(
-              ['**/*.{ts,tsx,js,jsx,mjs,cjs,vue,svelte,py,go,rs,java,c,cpp,cs,php,rb,swift,kt,sql,prisma}'],
-              {
-                cwd: effectiveCwd,
-                ignore: ['**/node_modules/**', '**/dist/**', '**/.git/**', '**/coverage/**', '**/.scp/**', '**/build/**'],
-                dot: false,
-              }
-            );
+            const files = await fg([POLYGLOT_GLOB_PATTERN], {
+              cwd: effectiveCwd,
+              ignore: ['**/node_modules/**', '**/dist/**', '**/.git/**', '**/coverage/**', '**/.scp/**', '**/build/**'],
+              dot: false,
+            });
 
             const cache = new AstCache(effectiveCwd);
             const results: Array<{ filePath: string; lines: number; tokens: number; symbols: string[] }> = [];
@@ -902,6 +935,7 @@ export class McpServer {
             const targets = (args.targets as string[]) || [];
             const depth = typeof args.depth === 'number' ? args.depth : 2;
             const skeleton = Boolean(args.skeleton);
+            const treeShake = Boolean(args.treeShake);
             const maxTokens = typeof args.maxTokens === 'number' ? args.maxTokens : undefined;
             const blastRadius = Boolean(args.blastRadius);
             const noCache = Boolean(args.noCache);
@@ -915,6 +949,7 @@ export class McpServer {
               targets,
               depth,
               skeleton,
+              treeShake,
               maxTokens,
               blastRadius,
               noCache,
@@ -969,8 +1004,11 @@ export class McpServer {
 
           if (toolName === 'pack_git_diff') {
             const stagedOnly = Boolean(args.stagedOnly);
+            const commit = args.commit ? String(args.commit) : undefined;
+            const pr = args.pr ? String(args.pr) : undefined;
             const depth = typeof args.depth === 'number' ? args.depth : 2;
             const skeleton = Boolean(args.skeleton);
+            const treeShake = Boolean(args.treeShake);
             const maxTokens = typeof args.maxTokens === 'number' ? args.maxTokens : undefined;
             const blastRadius = Boolean(args.blastRadius);
             const noCache = Boolean(args.noCache);
@@ -978,8 +1016,10 @@ export class McpServer {
             const format: OutputFormat = args.format === 'xml' ? 'xml' : 'md';
             const effectiveCwd = resolveEffectiveCwd([], args.cwd as string | undefined);
 
-            const modifiedFiles = getGitModifiedFiles(effectiveCwd, stagedOnly);
-            if (modifiedFiles.length === 0) {
+            const modifiedFiles = commit
+              ? getGitCommitFiles(effectiveCwd, commit)
+              : getGitModifiedFiles(effectiveCwd, stagedOnly);
+            if (!pr && modifiedFiles.length === 0) {
               return {
                 jsonrpc: '2.0',
                 id,
@@ -988,7 +1028,7 @@ export class McpServer {
                     {
                       type: 'text',
                       text: `<!-- SMART CONTEXT PACKER: AI DIRECTIVE -->\n\nNo ${
-                        stagedOnly ? 'staged' : 'uncommitted modified or untracked'
+                        commit ? `changes in commit ${commit}` : stagedOnly ? 'staged' : 'uncommitted modified or untracked'
                       } Git files were detected in workspace: ${effectiveCwd}.\nWorking tree is clean.`,
                     },
                   ],
@@ -1001,12 +1041,15 @@ export class McpServer {
               targets: modifiedFiles,
               depth,
               skeleton,
+              treeShake,
               maxTokens,
               blastRadius,
               noCache,
               includeMemory,
-              diff: !stagedOnly,
+              diff: !stagedOnly && !commit && !pr,
               staged: stagedOnly,
+              commit,
+              pr,
               format,
               quiet: true,
             });
@@ -1103,7 +1146,7 @@ export class McpServer {
 
             let targets = rawTargets;
             if (targets.length === 0) {
-              const discovered = fg.sync(['**/*.{ts,tsx,js,jsx,vue,go,rs,py,lua}'], {
+              const discovered = fg.sync([POLYGLOT_GLOB_PATTERN], {
                 cwd: effectiveCwd,
                 ignore: ['node_modules/**', 'dist/**', '.git/**', 'coverage/**', '**/*.test.*', '**/*.spec.*'],
                 absolute: false,
@@ -1139,7 +1182,7 @@ export class McpServer {
             const topK = typeof args.topK === 'number' ? args.topK : 5;
             const effectiveCwd = resolveEffectiveCwd([], args.cwd as string | undefined);
 
-            const candidateFiles = fg.sync(['**/*.{ts,tsx,js,jsx,vue,go,rs,py,lua}'], {
+            const candidateFiles = fg.sync([POLYGLOT_GLOB_PATTERN], {
               cwd: effectiveCwd,
               ignore: ['node_modules/**', 'dist/**', '.git/**', 'coverage/**'],
               absolute: false,
@@ -1446,9 +1489,33 @@ export class McpServer {
               };
             }
 
+            // Check if this symbol is exported and locate workspace files that import this file
+            const exported = AstCache.extractExportedSymbols(rawContent, ext);
+            const isExported = exported.includes(symbolName);
+            let callersSection = '';
+
+            if (isExported) {
+              try {
+                const analyzer = new DependencyAnalyzer({
+                  cwd: effectiveCwd,
+                  reverse: true,
+                  maxDepth: 1,
+                });
+                const graph = await analyzer.analyze([relPath]);
+                const node = graph.nodes.get(relPath);
+                const callers = node?.importedBy || [];
+                if (callers.length > 0) {
+                  callersSection = `\n\n**Referenced By (${callers.length} caller${callers.length > 1 ? 's' : ''}):**\n` +
+                    callers.map((c) => `- \`${c}\``).join('\n');
+                }
+              } catch {
+                // ignore reverse lookup errors
+              }
+            }
+
             const lang = ext.replace(/^\./, '') || 'ts';
             const header = `<!-- SURGICAL SYMBOL DEFINITION: ${symbolName} (${relPath}:${res.startLine}-${res.endLine}, ~${res.estimatedTokens} tokens) -->\n\n`;
-            const formatted = `${header}\`\`\`${lang}\n// File: ${relPath}:${res.startLine}-${res.endLine}\n${res.codeSnippet}\n\`\`\``;
+            const formatted = `${header}\`\`\`${lang}\n// File: ${relPath}:${res.startLine}-${res.endLine}\n${res.codeSnippet}\n\`\`\`${callersSection}`;
 
             return {
               jsonrpc: '2.0',
@@ -1567,7 +1634,16 @@ export class McpServer {
           }
 
           if (toolName === 'audit_context_leak') {
-            const content = String(args.content || '');
+            let content = String(args.content || args.contextText || '');
+            if (!content && args.filePath) {
+              const effectiveCwd = resolveEffectiveCwd([String(args.filePath)], args.cwd as string | undefined);
+              const fullPath = path.isAbsolute(String(args.filePath))
+                ? String(args.filePath)
+                : path.resolve(effectiveCwd, String(args.filePath));
+              if (fs.existsSync(fullPath)) {
+                content = fs.readFileSync(fullPath, 'utf-8');
+              }
+            }
             const audit = auditContextContent(content);
 
             const lines = [

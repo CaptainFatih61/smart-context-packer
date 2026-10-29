@@ -722,6 +722,10 @@ scp [options] [targets...]
 | `--visualize [path]` | | Generate interactive offline HTML canvas visualizer report | `false` |
 | `--diff` | | Discover all uncommitted modified/untracked files as targets & include diff patch | `false` |
 | `--staged` | | Discover staged files as targets & include staged diff patch | `false` |
+| `--commit <ref>` | | Pack files modified in a specific Git commit, branch, or range (e.g. `HEAD~2..HEAD`) | |
+| `--pr <target>` | | Pack files modified in a Pull Request number, URL, or branch | |
+| `--tree-shake` | | Prune unreferenced exported symbols from dependencies (AST Dead-Code Slicing) | `false` |
+| `--watch` | `-w` | Watch packed files and dependencies for changes and live-reload context pack | `false` |
 | `--blast-radius` | `-b` | Trace callers, identify unit tests, and compute 0-10 Risk Score | `false` |
 | `--max-tokens <number>` | `-m` | Auto-skeletonize dependencies from deepest depth to fit token budget | |
 | `--no-cache` | | Disable SHA-256 AST local disk caching | `false` |
@@ -864,6 +868,10 @@ for (const [filePath, node] of graph.nodes) {
 - [x] Smart Middle-Out Slicing for massive files (>500 lines)
 - [x] 16-Language Ultra-Polyglot AST Support (C#, Java, Kotlin, C++, PHP, Dart, Swift, Ruby, Svelte, TS, Go, Rust, Python, Vue, Lua, Prisma)
 - [x] Complete 15-Tool Model Context Protocol (MCP) Suite with Surgical Layer 4
+- [x] Symbol-Level AST Tree-Shaking (`--tree-shake`) for Dead-Code Slicing of dependencies
+- [x] Automatic Monorepo Workspace Package Resolution (`package.json` workspaces, `pnpm-workspace.yaml`, `packages/*`, `apps/*`)
+- [x] Git Commit Range & Pull Request Context Packing (`--commit`, `--pr`)
+- [x] Live File System Watch Mode (`-w, --watch`)
 - [ ] Interactive VS Code extension with one-click "Pack Context" context menu
 
 ---

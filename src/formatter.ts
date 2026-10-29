@@ -177,6 +177,7 @@ export class ContextFormatter {
         const tags: string[] = [];
         if (node.type === 'target') tags.push('TARGET');
         else tags.push(`DEP: depth ${node.depth}`);
+        if (node.isTreeShaken) tags.push('TREE-SHAKEN');
         if (node.isSkeleton) tags.push('SKELETON');
 
         sections.push(`### File: \`${filePath}\` (${tags.join(', ')})`);
@@ -353,10 +354,11 @@ export function renderAsciiTree(graph: DependencyGraph): string {
       if (item.node) {
         if (item.node.type === 'target') {
           tag = ' [TARGET]';
-        } else if (item.node.isSkeleton) {
-          tag = ` [DEP: depth ${item.node.depth}, SKELETON]`;
         } else {
-          tag = ` [DEP: depth ${item.node.depth}]`;
+          const extras: string[] = [`depth ${item.node.depth}`];
+          if (item.node.isTreeShaken) extras.push('TREE-SHAKEN');
+          if (item.node.isSkeleton) extras.push('SKELETON');
+          tag = ` [DEP: ${extras.join(', ')}]`;
         }
       }
 
@@ -396,6 +398,8 @@ function detectLanguage(filePath: string): string {
   const ext = path.extname(filePath).toLowerCase();
   switch (ext) {
     case '.ts':
+    case '.mts':
+    case '.cts':
       return 'typescript';
     case '.tsx':
       return 'tsx';
@@ -407,6 +411,37 @@ function detectLanguage(filePath: string): string {
       return 'jsx';
     case '.vue':
       return 'vue';
+    case '.svelte':
+      return 'svelte';
+    case '.py':
+      return 'python';
+    case '.go':
+      return 'go';
+    case '.rs':
+      return 'rust';
+    case '.cs':
+      return 'csharp';
+    case '.java':
+      return 'java';
+    case '.kt':
+    case '.kts':
+      return 'kotlin';
+    case '.c':
+    case '.h':
+      return 'c';
+    case '.cpp':
+    case '.cc':
+    case '.cxx':
+    case '.hpp':
+      return 'cpp';
+    case '.php':
+      return 'php';
+    case '.dart':
+      return 'dart';
+    case '.swift':
+      return 'swift';
+    case '.rb':
+      return 'ruby';
     case '.json':
       return 'json';
     case '.lua':
@@ -420,6 +455,8 @@ function detectLanguage(filePath: string): string {
       return 'html';
     case '.css':
       return 'css';
+    case '.sql':
+      return 'sql';
     case '.prisma':
       return 'prisma';
     default:

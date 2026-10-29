@@ -3,6 +3,7 @@ import path from 'node:path';
 import fg from 'fast-glob';
 import { BM25CodeSearch } from './query.js';
 import { AstCache } from './cache.js';
+import { POLYGLOT_GLOB_PATTERN } from './analyzer.js';
 
 export interface TaskItem {
   id: string;
@@ -156,7 +157,7 @@ export class TaskManager {
    * Discovers relevant seed files for a task description using BM25 intent search.
    */
   public discoverTaskSeedFiles(taskDescription: string, limit = 4): string[] {
-    const candidateFiles = fg.sync(['**/*.{ts,tsx,js,jsx,vue,go,rs,py,lua}'], {
+    const candidateFiles = fg.sync([POLYGLOT_GLOB_PATTERN], {
       cwd: this.workspaceRoot,
       ignore: ['node_modules/**', 'dist/**', '.git/**', 'coverage/**', '.scp/**'],
       absolute: false,

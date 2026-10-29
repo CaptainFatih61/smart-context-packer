@@ -2,10 +2,16 @@ import fs from 'node:fs';
 import path from 'node:path';
 import clipboardy from 'clipboardy';
 import type { PackOptions, PackResult } from './types.js';
-import { DependencyAnalyzer } from './analyzer.js';
+import { DependencyAnalyzer, POLYGLOT_GLOB_PATTERN } from './analyzer.js';
 import { aggregateTokenStats } from './tokens.js';
 import { ContextFormatter } from './formatter.js';
-import { getGitModifiedFiles, getGitDiffPatch } from './git.js';
+import {
+  getGitModifiedFiles,
+  getGitDiffPatch,
+  getGitCommitFiles,
+  getGitCommitPatch,
+  resolvePullRequestChanges,
+} from './git.js';
 import { calculateBlastRadius } from './blast-radius.js';
 import { ProjectMemoryManager } from './memory.js';
 import { AstCache } from './cache.js';
@@ -68,7 +74,7 @@ export async function packContext(options: PackOptions): Promise<PackResult> {
 
   // 2. Resolve targets from BM25 query if specified
   if (options.query && targets.length === 0) {
-    const candidateFiles = fg.sync(['**/*.{ts,tsx,js,jsx,vue,go,rs,py,lua}'], {
+    const candidateFiles = fg.sync([POLYGLOT_GLOB_PATTERN], {
       cwd,
       ignore: ['node_modules/**', 'dist/**', '.git/**', 'coverage/**', '.scp/**'],
       absolute: false,
@@ -89,8 +95,28 @@ export async function packContext(options: PackOptions): Promise<PackResult> {
     targets = searchResults.map((r) => r.path);
   }
 
-  // 3. Resolve git diff/staged targets
-  if (options.diff || options.staged) {
+  // 3. Resolve git diff/staged/commit/PR targets
+  if (options.pr) {
+    const prResolved = resolvePullRequestChanges(cwd, options.pr);
+    for (const pf of prResolved.files) {
+      if (!targets.includes(pf)) {
+        targets.push(pf);
+      }
+    }
+    if (!gitDiffPatch && prResolved.patch) {
+      gitDiffPatch = prResolved.patch;
+    }
+  } else if (options.commit) {
+    const commitFiles = getGitCommitFiles(cwd, options.commit);
+    for (const cf of commitFiles) {
+      if (!targets.includes(cf)) {
+        targets.push(cf);
+      }
+    }
+    if (!gitDiffPatch) {
+      gitDiffPatch = getGitCommitPatch(cwd, options.commit);
+    }
+  } else if (options.diff || options.staged) {
     const gitFiles = getGitModifiedFiles(cwd, Boolean(options.staged));
     for (const gf of gitFiles) {
       if (!targets.includes(gf)) {
@@ -111,11 +137,13 @@ export async function packContext(options: PackOptions): Promise<PackResult> {
     maxDepth: options.depth ?? options.maxDepth ?? 2,
     reverse: options.reverse ?? false,
     skeleton: options.skeleton ?? false,
+    treeShake: options.treeShake ?? false,
     redact: options.redact ?? true,
     customAliases: options.customAliases,
     ignorePatterns: options.ignorePatterns,
     diff: options.diff,
     staged: options.staged,
+    commit: options.commit,
     maxTokens: options.maxTokens,
     noCache: options.noCache,
   });

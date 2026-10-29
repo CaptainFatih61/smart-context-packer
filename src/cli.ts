@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import path from 'node:path';
 import { Command } from 'commander';
 import pc from 'picocolors';
@@ -24,6 +25,7 @@ program
   .option('-d, --depth <number>', 'Dependency traversal depth (default: 2)', '2')
   .option('-r, --reverse', 'Include reverse dependencies (files importing target)', false)
   .option('-s, --skeleton', 'Strip function/class bodies of dependencies to type signatures', false)
+  .option('--tree-shake', 'Prune unreferenced exported symbols from dependencies (AST Dead-Code Slicing)', false)
   .option('-m, --max-tokens <number>', 'Auto-skeletonize dependencies to fit token budget')
   .option('-b, --blast-radius', 'Perform blast-radius impact analysis and risk scoring', false)
   .option('-i, --query <intent>', 'Semantic intent or keyword query to discover target files (BM25)')
@@ -37,6 +39,9 @@ program
   .option('-c, --copy', 'Copy packed prompt directly to system clipboard', false)
   .option('--diff', 'Automatically discover uncommitted modified & untracked Git files and attach diff patch', false)
   .option('--staged', 'Automatically discover staged Git files and attach staged diff patch', false)
+  .option('--commit <ref>', 'Pack files modified in a specific Git commit, branch, or range (e.g. HEAD~2..HEAD)')
+  .option('--pr <target>', 'Pack files modified in a Pull Request number, URL, or branch')
+  .option('-w, --watch', 'Watch packed files and dependencies for changes and live-reload context pack', false)
   .option('--no-cache', 'Disable SHA-256 AST caching')
   .option('--clear-cache', 'Clear local .scp/cache.json AST cache', false)
   .option('--add-memory <pattern:note>', 'Store persistent project memory note linked to file pattern')
@@ -248,28 +253,34 @@ program
       const outputFile = shouldSaveFile ? options.output : undefined;
       const noCache = options.cache === false || options.noCache === true;
 
-      const result = await packContext({
-        targets,
-        depth: parsedDepth,
-        reverse: options.reverse,
-        skeleton: options.skeleton,
-        maxTokens: parsedMaxTokens,
-        blastRadius: options.blastRadius,
-        query: options.query,
-        task: options.task,
-        includeDeps: options.deps !== false,
-        repoMap: repoMapOpt,
-        visualize: visualizeOpt,
-        noCache,
-        diff: options.diff,
-        staged: options.staged,
-        format,
-        output: outputFile,
-        copy: options.copy,
-        redact: options.redact,
-        treeOnly: options.treeOnly,
-        quiet: options.quiet,
-      });
+      const runPack = async () =>
+        packContext({
+          targets,
+          depth: parsedDepth,
+          reverse: options.reverse,
+          skeleton: options.skeleton,
+          treeShake: options.treeShake,
+          maxTokens: parsedMaxTokens,
+          blastRadius: options.blastRadius,
+          query: options.query,
+          task: options.task,
+          includeDeps: options.deps !== false,
+          repoMap: repoMapOpt,
+          visualize: visualizeOpt,
+          noCache,
+          diff: options.diff,
+          staged: options.staged,
+          commit: options.commit,
+          pr: options.pr,
+          format,
+          output: outputFile,
+          copy: options.copy,
+          redact: options.redact,
+          treeOnly: options.treeOnly,
+          quiet: options.quiet,
+        });
+
+      const result = await runPack();
 
       if (options.stdout) {
         process.stdout.write(result.formattedPrompt);
@@ -282,6 +293,7 @@ program
           renderTerminalSummary(result.graph, result.stats, {
             file: outputFile,
             clipboard: result.copiedToClipboard,
+            maxTokens: parsedMaxTokens,
           })
         );
         console.log('');
@@ -295,6 +307,51 @@ program
           console.log(pc.green('✔ ') + pc.bold(pc.cyan(`Interactive Visualizer generated at ${result.visualizerPath}`)));
         }
         console.log('');
+      }
+
+      // 9. Handle live Watch Mode (-w, --watch)
+      if (options.watch) {
+        console.log(pc.cyan('👀 Watch mode active: monitoring dependency graph for changes... (Press Ctrl+C to stop)'));
+        let debounceTimer: NodeJS.Timeout | null = null;
+        const watchers: fs.FSWatcher[] = [];
+
+        const setupWatchers = (files: string[]) => {
+          while (watchers.length > 0) {
+            try {
+              watchers.pop()?.close();
+            } catch {
+              // ignore
+            }
+          }
+          for (const relFile of files) {
+            const abs = path.resolve(process.cwd(), relFile);
+            if (fs.existsSync(abs)) {
+              try {
+                const w = fs.watch(abs, () => {
+                  if (debounceTimer) clearTimeout(debounceTimer);
+                  debounceTimer = setTimeout(async () => {
+                    try {
+                      const updated = await runPack();
+                      const timeStr = new Date().toLocaleTimeString();
+                      console.log(
+                        pc.green(`↻ [${timeStr}]`) +
+                          pc.white(` Re-packed ${updated.graph.nodes.size} files (~${updated.stats.totalTokens.toLocaleString()} tokens)`)
+                      );
+                      setupWatchers(Array.from(updated.graph.nodes.keys()));
+                    } catch (e) {
+                      console.error(pc.red(`Watch reload error: ${e instanceof Error ? e.message : String(e)}`));
+                    }
+                  }, 150);
+                });
+                watchers.push(w);
+              } catch {
+                // ignore individual file watch error
+              }
+            }
+          }
+        };
+
+        setupWatchers(Array.from(result.graph.nodes.keys()));
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);

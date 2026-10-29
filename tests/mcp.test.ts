@@ -523,7 +523,7 @@ describe('Model Context Protocol (MCP) Server', () => {
       method: 'tools/call',
       params: {
         name: 'audit_context_leak',
-        arguments: { content: safeText },
+        arguments: { contextText: safeText },
       },
     });
 
@@ -531,6 +531,20 @@ describe('Model Context Protocol (MCP) Server', () => {
     const contentSafe = (resSafe?.result as any).content[0].text;
     expect(contentSafe).toContain('✅ SAFE');
     expect(contentSafe).toContain('17 tokens');
+
+    // 3. Audit directly via filePath parameter
+    const sampleFile = path.resolve(sampleAppDir, 'src/index.ts');
+    const resFile = await server.handleMessage({
+      jsonrpc: '2.0',
+      id: 25,
+      method: 'tools/call',
+      params: {
+        name: 'audit_context_leak',
+        arguments: { filePath: sampleFile },
+      },
+    });
+    expect(resFile?.id).toBe(25);
+    expect((resFile?.result as any).content[0].text).toContain('Context Safety & Token Density Audit');
   });
 
   it('returns error for unknown tool call', async () => {

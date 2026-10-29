@@ -24,6 +24,10 @@ export interface DependencyNode {
   importedBy: string[];
   /** Whether the body has been skeletonized to save tokens */
   isSkeleton: boolean;
+  /** Whether unused exports were tree-shaken from this dependency */
+  isTreeShaken?: boolean;
+  /** Specific symbol names imported by parent nodes (or '*' if namespace/default/side-effect) */
+  importedSymbols?: string[];
   /** Processed content ready for output */
   content: string;
   /** Per-node stats */
@@ -115,6 +119,8 @@ export interface AnalyzerOptions {
   reverse?: boolean;
   /** If true, replaces function/class bodies of dependencies with type signatures */
   skeleton?: boolean;
+  /** If true, prunes unreferenced exported symbols from dependencies (AST Dead-Code Slicing) */
+  treeShake?: boolean;
   /** If true, masks sensitive keys and tokens (default: true) */
   redact?: boolean;
   /** Custom path aliases, e.g. { "@/*": "src/*" } */
@@ -125,6 +131,8 @@ export interface AnalyzerOptions {
   diff?: boolean;
   /** If true, includes only staged git files */
   staged?: boolean;
+  /** Specific commit hash, branch, or range (e.g. "HEAD~2..HEAD", "main..feature") */
+  commit?: string;
   /** Maximum token budget. Automatically skeletonizes deeper dependencies until within budget */
   maxTokens?: number;
   /** If true, bypasses and does not read from SHA-256 AST cache */
@@ -146,6 +154,7 @@ export interface TokenStats {
     tokens: number;
     lines: number;
     isSkeleton: boolean;
+    isTreeShaken?: boolean;
   }>;
 }
 
@@ -204,6 +213,8 @@ export interface PackOptions extends AnalyzerOptions, Omit<FormatterOptions, 'bl
   includeDeps?: boolean;
   /** If true, shows context HUD budget breakdown (default: true in interactive CLI) */
   hud?: boolean;
+  /** Pull Request number, branch, or URL to pack modified files and diff patch */
+  pr?: string | number;
 }
 
 export interface PackResult {

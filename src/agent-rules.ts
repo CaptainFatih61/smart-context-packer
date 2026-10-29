@@ -81,6 +81,14 @@ When generating or modifying code in this workspace, preserve token context and 
 - Retrieve minimal dependency slices via pack_context (Layer 3 Progressive Disclosure).
 `;
 
+export const CURSOR_MDC_CONTENT = `---
+description: Autonomous context packing, dependency graph analysis, and token optimization via smart-context-packer MCP
+globs: **/*
+alwaysApply: true
+---
+
+${AGENT_RULES_CONTENT}`;
+
 /**
  * Initializes or updates AI agent rules across Cursor, Antigravity, Claude, Copilot,
  * Windsurf, OpenCode, Codex, Continue, Zed, Roo/Cline, Aider, and JetBrains.
@@ -146,22 +154,24 @@ export function initAgentRules(
     return fullPath;
   };
 
-  // 1. .agent/rules/smart-context-packer.md
+  // 1. .agent/rules/smart-context-packer.md & AGENTS.md
   let agentRulesPath = '';
   let agentRulesCreated = false;
   if (preset === 'all' || preset === 'agent') {
     const existsBefore = fs.existsSync(path.join(root, '.agent/rules/smart-context-packer.md'));
     agentRulesPath = writeOrAppend('.agent/rules/smart-context-packer.md', AGENT_RULES_CONTENT);
     agentRulesCreated = !existsBefore;
+    writeOrAppend('AGENTS.md', AGENT_RULES_CONTENT);
   }
 
-  // 2. .cursorrules
+  // 2. .cursorrules & .cursor/rules/smart-context-packer.mdc
   let cursorRulesPath = '';
   let cursorRulesCreated = false;
   if (preset === 'all' || preset === 'cursor') {
     const existsBefore = fs.existsSync(path.join(root, '.cursorrules'));
     cursorRulesPath = writeOrAppend('.cursorrules', AGENT_RULES_CONTENT);
     cursorRulesCreated = !existsBefore;
+    writeOrAppend('.cursor/rules/smart-context-packer.mdc', CURSOR_MDC_CONTENT);
   }
 
   // 3. CLAUDE.md (Claude Code CLI)

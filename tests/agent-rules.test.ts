@@ -21,9 +21,11 @@ describe('Automatic Background Agent Rule Generator', () => {
 
     expect(res.agentRulesCreated).toBe(true);
     expect(res.cursorRulesCreated).toBe(true);
-    expect(res.created.length).toBeGreaterThanOrEqual(12);
+    expect(res.created.length).toBeGreaterThanOrEqual(14);
     expect(res.created).toContain('.agent/rules/smart-context-packer.md');
+    expect(res.created).toContain('AGENTS.md');
     expect(res.created).toContain('.cursorrules');
+    expect(res.created).toContain('.cursor/rules/smart-context-packer.mdc');
     expect(res.created).toContain('CLAUDE.md');
     expect(res.created).toContain('.github/copilot-instructions.md');
     expect(res.created).toContain('.windsurfrules');

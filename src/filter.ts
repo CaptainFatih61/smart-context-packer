@@ -106,7 +106,17 @@ export function redactSecrets(content: string, filePath = ''): string {
   // 4. AWS Access Key ID
   result = result.replace(/\b(AKIA[0-9A-Z]{16})\b/g, '[REDACTED_AWS_KEY]');
 
-  // 5. PEM Private Key Blocks
+  // 5. Stripe Keys (sk_live_..., rk_live_..., sk_test_..., rk_test_...)
+  result = result.replace(/\b(?:sk|rk)_live_[0-9a-zA-Z]{24,}\b/g, '[REDACTED_STRIPE_LIVE_KEY]');
+  result = result.replace(/\b(?:sk|rk)_test_[0-9a-zA-Z]{24,}\b/g, '[REDACTED_STRIPE_TEST_KEY]');
+
+  // 6. Slack Tokens (xoxb-..., xoxp-..., xoxa-...)
+  result = result.replace(/\bxox[baprs]-[0-9a-zA-Z\-]{10,48}\b/g, '[REDACTED_SLACK_TOKEN]');
+
+  // 7. JWT Tokens (3 base64url segments)
+  result = result.replace(/\beyJ[A-Za-z0-9-_]{10,}\.eyJ[A-Za-z0-9-_]{10,}\.[A-Za-z0-9-_]{10,}\b/g, '[REDACTED_JWT_TOKEN]');
+
+  // 8. PEM Private Key Blocks
   result = result.replace(
     /-----BEGIN (?:[A-Z0-9 ]+ )?PRIVATE KEY-----[\s\S]*?-----END (?:[A-Z0-9 ]+ )?PRIVATE KEY-----/g,
     '-----BEGIN PRIVATE KEY-----\n[REDACTED_PRIVATE_KEY]\n-----END PRIVATE KEY-----'
@@ -321,8 +331,9 @@ function extractCodeSkeleton(code: string): string {
       result.push(`${signature} /* [Implementation omitted for token efficiency] */`);
 
       // Check if it closed on the same line
-      const lineCloses = (line.match(/\}/g) || []).length;
-      const lineOpens = (line.match(/\{/g) || []).length;
+      const cleanedHeader = stripStringsAndComments(line);
+      const lineCloses = (cleanedHeader.match(/\}/g) || []).length;
+      const lineOpens = (cleanedHeader.match(/\{/g) || []).length;
       if (lineCloses >= lineOpens) {
         result[result.length - 1] += ' }';
         inFunctionBody = false;
@@ -332,8 +343,9 @@ function extractCodeSkeleton(code: string): string {
     }
 
     if (inFunctionBody) {
-      const lineOpens = (line.match(/\{/g) || []).length;
-      const lineCloses = (line.match(/\}/g) || []).length;
+      const cleanedLine = stripStringsAndComments(line);
+      const lineOpens = (cleanedLine.match(/\{/g) || []).length;
+      const lineCloses = (cleanedLine.match(/\}/g) || []).length;
       braceDepth += lineOpens - lineCloses;
 
       if (braceDepth <= 0) {
@@ -389,9 +401,71 @@ function extractLuaSkeleton(code: string): string {
 }
 
 function countBraces(str: string): number {
-  const opens = (str.match(/\{/g) || []).length;
-  const closes = (str.match(/\}/g) || []).length;
+  const cleaned = stripStringsAndComments(str);
+  const opens = (cleaned.match(/\{/g) || []).length;
+  const closes = (cleaned.match(/\}/g) || []).length;
   return opens - closes;
+}
+
+/**
+ * Strips single-line comments, inline block comments, string literals, and regex literals
+ * from a line of code so brace counting ({ / }) is never fooled by strings or comments.
+ */
+export function stripStringsAndComments(line: string): string {
+  if (!line) return '';
+  let out = '';
+  let inSingle = false;
+  let inDouble = false;
+  let inTemplate = false;
+  let inBlockComment = false;
+
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i]!;
+    const next = line[i + 1];
+
+    if (inBlockComment) {
+      if (ch === '*' && next === '/') {
+        inBlockComment = false;
+        i++;
+      }
+      continue;
+    }
+
+    if (!inSingle && !inDouble && !inTemplate) {
+      if (ch === '/' && next === '/') {
+        break; // Rest of line is single-line comment
+      }
+      if (ch === '/' && next === '*') {
+        inBlockComment = true;
+        i++;
+        continue;
+      }
+    }
+
+    if (ch === '\\') {
+      i++; // Skip escaped char inside string
+      continue;
+    }
+
+    if (!inDouble && !inTemplate && ch === "'") {
+      inSingle = !inSingle;
+      continue;
+    }
+    if (!inSingle && !inTemplate && ch === '"') {
+      inDouble = !inDouble;
+      continue;
+    }
+    if (!inSingle && !inDouble && ch === '`') {
+      inTemplate = !inTemplate;
+      continue;
+    }
+
+    if (!inSingle && !inDouble && !inTemplate) {
+      out += ch;
+    }
+  }
+
+  return out;
 }
 
 /**
@@ -414,5 +488,281 @@ export function sliceMassiveFile(content: string, maxLines = 400): string {
   ];
 
   return result.join('\n');
+}
+
+/**
+ * Extracts a map of { importSpecifier -> Set of imported symbol names (or '*' if wildcard/default/side-effect) }
+ * from source code. Used by the AST Dead-Code Slicing (Tree-Shaking) engine.
+ */
+export function extractNamedImportsMap(code: string, ext: string): Map<string, Set<string>> {
+  const map = new Map<string, Set<string>>();
+  if (!code) return map;
+
+  const normalizedExt = ext.toLowerCase();
+
+  const addSymbols = (specifier: string, syms: string[]) => {
+    if (!map.has(specifier)) {
+      map.set(specifier, new Set());
+    }
+    const set = map.get(specifier)!;
+    for (const s of syms) {
+      if (s) set.add(s);
+    }
+  };
+
+  // Python: from .utils import a, b as c
+  if (normalizedExt === '.py') {
+    const clean = code.replace(/#.*$/gm, '');
+    const fromRegex = /\bfrom\s+([a-zA-Z0-9_.]+)\s+import\s+(?:\(([\s\S]*?)\)|([^\r\n]+))/g;
+    let m: RegExpExecArray | null;
+    while ((m = fromRegex.exec(clean)) !== null) {
+      const spec = m[1]!;
+      const rawList = (m[2] || m[3] || '').trim();
+      if (rawList === '*') {
+        addSymbols(spec, ['*']);
+      } else {
+        const syms = rawList
+          .split(',')
+          .map((part) => part.trim().split(/\s+as\s+/i)[0]!.trim())
+          .filter(Boolean);
+        addSymbols(spec, syms);
+      }
+    }
+    return map;
+  }
+
+  // Rust: use crate::utils::{foo, bar}; or use crate::utils::foo;
+  if (normalizedExt === '.rs') {
+    const clean = code.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+    const useBraceRegex = /\buse\s+((?:crate|super|self)::[a-zA-Z0-9_:]+)::\{([^}]+)\}/g;
+    let m: RegExpExecArray | null;
+    while ((m = useBraceRegex.exec(clean)) !== null) {
+      const spec = m[1]!;
+      const syms = m[2]!
+        .split(',')
+        .map((s) => s.trim().split(/\s+as\s+/)[0]!.trim())
+        .filter(Boolean);
+      addSymbols(spec, syms);
+    }
+    return map;
+  }
+
+  // TS / JS / JSX / TSX / Vue / Svelte
+  const cleanCode = code
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/\/\/.*$/gm, '');
+
+  // Named imports: import { a, type b, c as d } from './spec' or export { a, b } from './spec'
+  const namedRegex =
+    /\b(?:import|export)\s+(?:type\s+)?(?:([a-zA-Z0-9_$]+)\s*,\s*)?\{([^}]+)\}\s+from\s+['"]([^'"]+)['"]/g;
+  let match: RegExpExecArray | null;
+  while ((match = namedRegex.exec(cleanCode)) !== null) {
+    const defaultImport = match[1];
+    const namedBlock = match[2]!;
+    const specifier = match[3]!;
+    const symbols: string[] = [];
+
+    if (defaultImport) {
+      symbols.push('*'); // Default import requires keeping default export
+    }
+
+    const parts = namedBlock.split(',');
+    for (const part of parts) {
+      const cleanedPart = part
+        .trim()
+        .replace(/^type\s+/, '')
+        .split(/\s+as\s+/)[0]!
+        .trim();
+      if (cleanedPart) {
+        symbols.push(cleanedPart);
+      }
+    }
+    addSymbols(specifier, symbols);
+  }
+
+  // Namespace or default-only imports: import * as ns from './spec' or import Foo from './spec'
+  const defaultOrNsRegex =
+    /\bimport\s+(?:type\s+)?(?:\*\s+as\s+[a-zA-Z0-9_$]+|[a-zA-Z0-9_$]+)\s+from\s+['"]([^'"]+)['"]/g;
+  while ((match = defaultOrNsRegex.exec(cleanCode)) !== null) {
+    addSymbols(match[1]!, ['*']);
+  }
+
+  // Side-effect import: import './spec' or export * from './spec'
+  const wildcardRegex = /\b(?:import\s+['"]([^'"]+)['"]|export\s+\*\s+from\s+['"]([^'"]+)['"])/g;
+  while ((match = wildcardRegex.exec(cleanCode)) !== null) {
+    addSymbols((match[1] || match[2])!, ['*']);
+  }
+
+  return map;
+}
+
+/**
+ * Symbol-Level Tree-Shaking (Dead-Code Slicing) Engine.
+ * Prunes unreferenced exported functions, classes, types, and constants from a dependency file,
+ * keeping ONLY the symbols requested in `usedSymbols` (plus any internal helpers they call in the same file).
+ */
+export function treeShakeCode(content: string, usedSymbols: string[], ext: string): string {
+  if (!content || !usedSymbols || usedSymbols.length === 0 || usedSymbols.includes('*')) {
+    return content;
+  }
+
+  const normalizedExt = ext.toLowerCase();
+  if (!['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.py', '.rs', '.go'].includes(normalizedExt)) {
+    return content;
+  }
+
+  const lines = content.split(/\r?\n/);
+
+  interface CodeBlock {
+    symbolName?: string;
+    isExported: boolean;
+    startLine: number;
+    endLine: number;
+    text: string;
+  }
+
+  const blocks: CodeBlock[] = [];
+  let i = 0;
+
+  while (i < lines.length) {
+    const line = lines[i]!;
+    const trimmed = line.trim();
+
+    // Match top-level declaration in TS/JS/Rust/Go/Python
+    const tsMatch = trimmed.match(
+      /^(export\s+)?(?:default\s+)?(?:async\s+)?(?:function\*?|class|interface|type|enum|const|let|var)\s+([a-zA-Z0-9_$]+)/
+    );
+    const pyMatch = normalizedExt === '.py' ? trimmed.match(/^(?:async\s+)?(?:def|class)\s+([a-zA-Z0-9_]+)/) : null;
+    const rsMatch =
+      normalizedExt === '.rs'
+        ? trimmed.match(/^(pub(?:\([^)]+\))?\s+)?(?:async\s+)?(?:fn|struct|enum|trait|type|const)\s+([a-zA-Z0-9_]+)/)
+        : null;
+    const goMatch =
+      normalizedExt === '.go'
+        ? trimmed.match(/^(?:func\s+(?:\([^)]+\)\s+)?|type\s+|const\s+|var\s+)([a-zA-Z0-9_]+)/)
+        : null;
+
+    let symbolName: string | undefined;
+    let isExported = false;
+
+    if (tsMatch && tsMatch[2]) {
+      isExported = Boolean(tsMatch[1]);
+      symbolName = tsMatch[2];
+    } else if (pyMatch && pyMatch[1] && line.search(/\S|$/) === 0) {
+      isExported = !pyMatch[1].startsWith('_');
+      symbolName = pyMatch[1];
+    } else if (rsMatch && rsMatch[2]) {
+      isExported = Boolean(rsMatch[1]);
+      symbolName = rsMatch[2];
+    } else if (goMatch && goMatch[1]) {
+      isExported = /^[A-Z]/.test(goMatch[1]);
+      symbolName = goMatch[1];
+    }
+
+    if (symbolName) {
+      const startIdx = i;
+      let endIdx = i;
+
+      if (normalizedExt === '.py') {
+        const baseIndent = line.search(/\S|$/);
+        for (let j = i + 1; j < lines.length; j++) {
+          const nextLine = lines[j]!;
+          if (!nextLine.trim()) continue;
+          if (nextLine.search(/\S|$/) <= baseIndent) break;
+          endIdx = j;
+        }
+      } else {
+        // Brace or semicolon tracking
+        let braceDepth = 0;
+        let seenBrace = false;
+        let parenDepth = 0;
+        for (let j = i; j < lines.length; j++) {
+          const cleaned = stripStringsAndComments(lines[j]!);
+          const opens = (cleaned.match(/\{/g) || []).length;
+          const closes = (cleaned.match(/\}/g) || []).length;
+          const pOpens = (cleaned.match(/\(/g) || []).length;
+          const pCloses = (cleaned.match(/\)/g) || []).length;
+
+          if (opens > 0) seenBrace = true;
+          braceDepth += opens - closes;
+          parenDepth += pOpens - pCloses;
+          endIdx = j;
+
+          if (seenBrace && braceDepth <= 0 && parenDepth <= 0) {
+            break;
+          }
+          if (!seenBrace && parenDepth <= 0 && cleaned.trim().endsWith(';')) {
+            break;
+          }
+        }
+      }
+
+      blocks.push({
+        symbolName,
+        isExported,
+        startLine: startIdx,
+        endLine: endIdx,
+        text: lines.slice(startIdx, endIdx + 1).join('\n'),
+      });
+      i = endIdx + 1;
+      continue;
+    }
+
+    blocks.push({
+      isExported: false,
+      startLine: i,
+      endLine: i,
+      text: line,
+    });
+    i++;
+  }
+
+  // Determine retained symbols (transitive closure within the same file)
+  const retainedSymbols = new Set<string>(usedSymbols);
+  let added = true;
+  while (added) {
+    added = false;
+    for (const b of blocks) {
+      if (b.symbolName && retainedSymbols.has(b.symbolName)) {
+        // Check if this block's code references any other symbol declared in this file
+        for (const candidate of blocks) {
+          if (
+            candidate.symbolName &&
+            !retainedSymbols.has(candidate.symbolName) &&
+            new RegExp(`\\b${candidate.symbolName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(b.text)
+          ) {
+            retainedSymbols.add(candidate.symbolName);
+            added = true;
+          }
+        }
+      }
+    }
+  }
+
+  const outputLines: string[] = [];
+  let prunedCount = 0;
+  const prunedNames: string[] = [];
+
+  for (const b of blocks) {
+    if (b.symbolName) {
+      if (retainedSymbols.has(b.symbolName)) {
+        outputLines.push(b.text);
+      } else {
+        prunedCount++;
+        prunedNames.push(b.symbolName);
+      }
+    } else {
+      // Keep imports and file-level headers
+      outputLines.push(b.text);
+    }
+  }
+
+  if (prunedCount > 0) {
+    outputLines.push(
+      `\n/* [smart-context-packer tree-shaker: pruned ${prunedCount} unused symbol(s): ${prunedNames.slice(0, 8).join(', ')}${prunedNames.length > 8 ? '...' : ''}] */`
+    );
+  }
+
+  return outputLines.join('\n');
 }
 

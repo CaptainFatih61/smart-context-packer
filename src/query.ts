@@ -23,7 +23,8 @@ const STOP_WORDS = new Set([
   'return', 'default', 'interface', 'type', 'async', 'await', 'public', 'private',
   'protected', 'static', 'readonly', 'implements', 'extends', 'true', 'false',
   'null', 'undefined', 'void', 'string', 'number', 'boolean', 'any', 'object',
-  'ts', 'js', 'tsx', 'jsx', 'json', 'py', 'go', 'rs', 'lua', 'vue', 'html', 'css', 'md'
+  'ts', 'js', 'tsx', 'jsx', 'json', 'py', 'go', 'rs', 'lua', 'vue', 'svelte',
+  'cs', 'java', 'kt', 'kts', 'cpp', 'cc', 'cxx', 'php', 'dart', 'swift', 'rb', 'html', 'css', 'md'
 ]);
 
 /**

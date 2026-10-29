@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { FileFilter, redactSecrets, extractSkeleton, sliceMassiveFile } from '../src/filter.js';
+import { FileFilter, redactSecrets, extractSkeleton, sliceMassiveFile, stripStringsAndComments } from '../src/filter.js';
 
 describe('FileFilter & Security Engine', () => {
   it('correctly ignores node_modules, build outputs, lock files, and binary assets', () => {
@@ -99,5 +99,34 @@ const count = ref(0);
     expect(sliced).toContain('// Line 1');
     expect(sliced).toContain('intermediate lines omitted to fit token budget');
     expect(sliced).toContain('// Line 100');
+  });
+
+  it('handles unmatched braces inside strings and comments without breaking skeleton extraction', () => {
+    const trickyCode = `
+export function parseBraces(input: string): string {
+  const openChar = "{"; // comment with { and {{
+  const template = \`unmatched } brace in template\`;
+  if (input.includes(openChar)) {
+    return "matched } here";
+  }
+  return input;
+}
+
+export function nextFunction(): number {
+  return 42;
+}
+`.trim();
+
+    const skeleton = extractSkeleton(trickyCode, '.ts');
+    expect(skeleton).toContain('export function parseBraces(input: string): string { /* [Implementation omitted for token efficiency] */');
+    expect(skeleton).toContain('export function nextFunction(): number { /* [Implementation omitted for token efficiency] */');
+    expect(skeleton).not.toContain('const openChar');
+  });
+
+  it('strips strings and comments accurately in stripStringsAndComments', () => {
+    const raw = `const x = "{ hello }"; // trailing { comment`;
+    const stripped = stripStringsAndComments(raw);
+    expect(stripped).not.toContain('{');
+    expect(stripped).not.toContain('}');
   });
 });

@@ -11,13 +11,15 @@ import {
   FileFilter,
   redactSecrets,
   extractSkeleton,
+  extractNamedImportsMap,
+  treeShakeCode,
   DEFAULT_IGNORED_PATTERNS,
 } from './filter.js';
 import { calculateFileStats } from './tokens.js';
 import { locatePrismaSchema, extractRelevantPrismaSchema } from './prisma.js';
 import { AstCache, extractExportedSymbols } from './cache.js';
 
-const EXTENSIONS = [
+export const SUPPORTED_EXTENSIONS = [
   '.ts',
   '.tsx',
   '.js',
@@ -34,9 +36,11 @@ const EXTENSIONS = [
   '.cs',
   '.java',
   '.kt',
+  '.kts',
   '.c',
   '.cpp',
   '.cc',
+  '.cxx',
   '.h',
   '.hpp',
   '.php',
@@ -45,11 +49,17 @@ const EXTENSIONS = [
   '.rb',
 ];
 
+const EXTENSIONS = SUPPORTED_EXTENSIONS;
+
+export const POLYGLOT_GLOB_PATTERN =
+  '**/*.{ts,tsx,js,jsx,mjs,cjs,vue,svelte,lua,py,go,rs,cs,java,kt,kts,c,cpp,cc,cxx,h,hpp,php,dart,swift,rb,prisma}';
+
 export class DependencyAnalyzer {
   private cwd: string;
   private maxDepth: number;
   private reverse: boolean;
   private skeleton: boolean;
+  private treeShake: boolean;
   private redact: boolean;
   private filter: FileFilter;
   private aliasMap: Map<string, string>;
@@ -57,9 +67,10 @@ export class DependencyAnalyzer {
 
   constructor(options: AnalyzerOptions = {}) {
     this.cwd = path.resolve(options.cwd || process.cwd());
-    this.maxDepth = options.maxDepth !== undefined ? options.maxDepth : 2;
+    this.maxDepth = options.maxDepth !== undefined ? options.maxDepth : (options.depth !== undefined ? options.depth : 2);
     this.reverse = options.reverse || false;
     this.skeleton = options.skeleton || false;
+    this.treeShake = options.treeShake || false;
     this.redact = options.redact !== false;
     this.filter = new FileFilter(this.cwd, options.ignorePatterns || []);
     this.aliasMap = this.loadTsConfigAliases(options.customAliases);
@@ -93,7 +104,18 @@ export class DependencyAnalyzer {
     const visited = new Set<string>();
 
     // 1. Process target entrypoints
-    const queue: Array<{ filePath: string; depth: number; parent?: string }> = [];
+    const queue: Array<{ filePath: string; depth: number; parent?: string; importedSymbols?: string[] }> = [];
+    const requestedSymbolsPerNode = new Map<string, Set<string>>();
+    const rawContentsMap = new Map<string, string>();
+
+    const recordRequestedSymbols = (targetFile: string, syms?: string[]) => {
+      if (!syms || syms.length === 0) return;
+      if (!requestedSymbolsPerNode.has(targetFile)) {
+        requestedSymbolsPerNode.set(targetFile, new Set());
+      }
+      const set = requestedSymbolsPerNode.get(targetFile)!;
+      for (const s of syms) set.add(s);
+    };
 
     for (const target of normalizedTargets) {
       queue.push({ filePath: target, depth: 0 });
@@ -102,7 +124,8 @@ export class DependencyAnalyzer {
     // 2. Breadth-First-Search dependency traversal
     while (queue.length > 0) {
       const current = queue.shift()!;
-      const { filePath, depth, parent } = current;
+      const { filePath, depth, parent, importedSymbols } = current;
+      recordRequestedSymbols(filePath, importedSymbols);
 
       if (visited.has(filePath)) {
         // If already visited and we reached it from another parent, record reference
@@ -132,6 +155,7 @@ export class DependencyAnalyzer {
       }
 
       const rawContent = fs.readFileSync(absolutePath, 'utf-8');
+      rawContentsMap.set(filePath, rawContent);
       const ext = path.extname(filePath);
 
       // Extract raw import specifiers & exported symbols with cache
@@ -149,13 +173,28 @@ export class DependencyAnalyzer {
         this.cache?.set(filePath, absolutePath, rawContent, rawSpecifiers, baseStats, exportedSymbols);
       }
 
-      // Resolve local filesystem imports
+      // Resolve local filesystem imports and record named symbols imported per resolved file
       const resolvedImports: string[] = [];
+      const namedImportsMap = extractNamedImportsMap(rawContent, ext);
+      const resolvedSymbolsMap = new Map<string, string[]>();
+
       for (const specifier of rawSpecifiers) {
         const resolvedPath = this.resolveImportPath(specifier, filePath);
         if (resolvedPath) {
           if (!this.filter.isIgnored(resolvedPath)) {
-            resolvedImports.push(resolvedPath);
+            if (!resolvedImports.includes(resolvedPath)) {
+              resolvedImports.push(resolvedPath);
+            }
+            const specSymbols = namedImportsMap.get(specifier);
+            if (specSymbols && specSymbols.size > 0) {
+              const prev = resolvedSymbolsMap.get(resolvedPath) || [];
+              resolvedSymbolsMap.set(resolvedPath, Array.from(new Set([...prev, ...specSymbols])));
+            } else {
+              // If specifier wasn't matched as named import, assume wildcard/default
+              const prev = resolvedSymbolsMap.get(resolvedPath) || [];
+              if (!prev.includes('*')) prev.push('*');
+              resolvedSymbolsMap.set(resolvedPath, prev);
+            }
           }
         }
       }
@@ -199,7 +238,39 @@ export class DependencyAnalyzer {
       // Enqueue child dependencies if within maxDepth limit
       if (depth < this.maxDepth) {
         for (const dep of resolvedImports) {
-          queue.push({ filePath: dep, depth: depth + 1, parent: filePath });
+          queue.push({
+            filePath: dep,
+            depth: depth + 1,
+            parent: filePath,
+            importedSymbols: resolvedSymbolsMap.get(dep),
+          });
+        }
+      }
+    }
+
+    // 2.5 Apply Symbol-Level Tree-Shaking (Dead-Code Slicing) to dependencies if requested
+    for (const [filePath, node] of nodes.entries()) {
+      const reqSymsSet = requestedSymbolsPerNode.get(filePath);
+      if (reqSymsSet && reqSymsSet.size > 0) {
+        node.importedSymbols = Array.from(reqSymsSet);
+      }
+
+      if (this.treeShake && node.type === 'dependency' && node.depth > 0 && node.importedSymbols) {
+        if (!node.importedSymbols.includes('*')) {
+          const raw = rawContentsMap.get(filePath) || node.content;
+          const ext = path.extname(filePath);
+          let shaken = treeShakeCode(raw, node.importedSymbols, ext);
+          if (this.skeleton) {
+            shaken = extractSkeleton(shaken, ext);
+          }
+          if (this.redact) {
+            shaken = redactSecrets(shaken, filePath);
+          }
+          if (shaken !== node.content) {
+            node.content = shaken;
+            node.isTreeShaken = true;
+            node.stats = calculateFileStats(shaken);
+          }
         }
       }
     }
@@ -328,13 +399,13 @@ export class DependencyAnalyzer {
     }
 
     // 7. Java / Kotlin files
-    if (normalizedExt === '.java' || normalizedExt === '.kt') {
+    if (normalizedExt === '.java' || normalizedExt === '.kt' || normalizedExt === '.kts') {
       this.parseJvmImports(content).forEach((imp) => specifiers.add(imp));
       return Array.from(specifiers);
     }
 
     // 8. C / C++ files
-    if (['.c', '.cpp', '.cc', '.h', '.hpp'].includes(normalizedExt)) {
+    if (['.c', '.cpp', '.cc', '.cxx', '.h', '.hpp'].includes(normalizedExt)) {
       this.parseCppIncludes(content).forEach((imp) => specifiers.add(imp));
       return Array.from(specifiers);
     }
@@ -1124,7 +1195,112 @@ export class DependencyAnalyzer {
       }
     }
 
+    // Discover Monorepo Workspace Packages (npm/yarn/pnpm workspaces, Cargo, Go workspaces)
+    this.discoverMonorepoWorkspaces(map);
+
     return map;
+  }
+
+  /**
+   * Scans workspace manifests (package.json workspaces, pnpm-workspace.yaml, Cargo.toml, go.work)
+   * and maps workspace package names directly to their local source entrypoints.
+   */
+  private discoverMonorepoWorkspaces(map: Map<string, string>): void {
+    const workspacePatterns: string[] = [];
+
+    // 1. package.json "workspaces"
+    const rootPkgPath = path.join(this.cwd, 'package.json');
+    if (fs.existsSync(rootPkgPath)) {
+      try {
+        const rootPkg = JSON.parse(fs.readFileSync(rootPkgPath, 'utf-8'));
+        const ws = rootPkg.workspaces;
+        if (Array.isArray(ws)) {
+          workspacePatterns.push(...ws.filter((w): w is string => typeof w === 'string'));
+        } else if (ws && Array.isArray(ws.packages)) {
+          workspacePatterns.push(...ws.packages.filter((w: unknown): w is string => typeof w === 'string'));
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    // 2. pnpm-workspace.yaml
+    const pnpmWsPath = path.join(this.cwd, 'pnpm-workspace.yaml');
+    if (fs.existsSync(pnpmWsPath)) {
+      try {
+        const content = fs.readFileSync(pnpmWsPath, 'utf-8');
+        const lines = content.split(/\r?\n/);
+        for (const line of lines) {
+          const m = line.match(/^\s*-\s*['"]?([^'"#]+?)['"]?\s*$/);
+          if (m && m[1] && !m[1].startsWith('!')) {
+            workspacePatterns.push(m[1].trim());
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    // 3. Common monorepo conventions if packages/ or apps/ directories exist
+    for (const defaultDir of ['packages/*', 'apps/*']) {
+      const checkDir = path.join(this.cwd, defaultDir.slice(0, -2));
+      if (fs.existsSync(checkDir) && fs.statSync(checkDir).isDirectory()) {
+        if (!workspacePatterns.includes(defaultDir)) {
+          workspacePatterns.push(defaultDir);
+        }
+      }
+    }
+
+    if (workspacePatterns.length > 0) {
+      const pkgJsonPatterns = workspacePatterns.map((p) => `${p.replace(/\/+$/, '')}/package.json`);
+      try {
+        const pkgJsonFiles = fg.sync(pkgJsonPatterns, {
+          cwd: this.cwd,
+          ignore: ['**/node_modules/**', '**/dist/**'],
+          onlyFiles: true,
+        });
+
+        for (const relPkgJson of pkgJsonFiles) {
+          try {
+            const fullPkgPath = path.join(this.cwd, relPkgJson);
+            const pkgDir = path.dirname(relPkgJson).replace(/\\/g, '/');
+            const pkgData = JSON.parse(fs.readFileSync(fullPkgPath, 'utf-8'));
+            const pkgName = pkgData.name;
+            if (typeof pkgName === 'string' && pkgName.trim()) {
+              // Find primary source entrypoint
+              const entryCandidates = [
+                pkgData.source,
+                'src/index.ts',
+                'src/index.tsx',
+                'src/index.js',
+                'index.ts',
+                'index.js',
+                pkgData.main,
+              ].filter((c): c is string => typeof c === 'string');
+
+              let resolvedEntry = `${pkgDir}/src/index.ts`;
+              for (const cand of entryCandidates) {
+                const cleanCand = cand.replace(/^\.\//, '');
+                if (fs.existsSync(path.join(this.cwd, pkgDir, cleanCand))) {
+                  resolvedEntry = `${pkgDir}/${cleanCand}`;
+                  break;
+                }
+              }
+
+              // Map exact package import: import { x } from '@scope/pkg'
+              map.set(pkgName, resolvedEntry);
+              // Map subpath import: import { x } from '@scope/pkg/utils'
+              const srcBase = fs.existsSync(path.join(this.cwd, pkgDir, 'src')) ? `${pkgDir}/src/*` : `${pkgDir}/*`;
+              map.set(`${pkgName}/*`, srcBase);
+            }
+          } catch {
+            // ignore individual package.json parse errors
+          }
+        }
+      } catch {
+        // ignore glob errors
+      }
+    }
   }
 
   /**
@@ -1135,7 +1311,7 @@ export class DependencyAnalyzer {
     nodes: Map<string, DependencyNode>
   ): Promise<void> {
     const targetSet = new Set(targets);
-    const allFiles = await fg('**/*.{ts,tsx,js,jsx,vue,lua}', {
+    const allFiles = await fg(POLYGLOT_GLOB_PATTERN, {
       cwd: this.cwd,
       ignore: DEFAULT_IGNORED_PATTERNS,
       onlyFiles: true,

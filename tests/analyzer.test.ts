@@ -95,4 +95,90 @@ describe('DependencyAnalyzer (TypeScript/JS/Vue)', () => {
     const importedByFiles = Array.from(graph.nodes.keys());
     expect(importedByFiles).toContain('src/index.ts');
   });
+
+  it('prunes unused exported functions in dependencies when treeShake: true', async () => {
+    const fs = await import('node:fs');
+    const os = await import('node:os');
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'scp-treeshake-'));
+    try {
+      fs.writeFileSync(
+        path.join(tmpDir, 'utils.ts'),
+        [
+          'export function usedHelper(x: number): number {',
+          '  return internalMath(x) + 1;',
+          '}',
+          '',
+          'function internalMath(n: number): number {',
+          '  return n * 2;',
+          '}',
+          '',
+          'export function unusedHeavyFunction(): string {',
+          '  return "this should be pruned by tree-shaker";',
+          '}',
+        ].join('\n'),
+        'utf-8'
+      );
+
+      fs.writeFileSync(
+        path.join(tmpDir, 'entry.ts'),
+        `import { usedHelper } from './utils.js';\nconsole.log(usedHelper(5));\n`,
+        'utf-8'
+      );
+
+      const analyzer = new DependencyAnalyzer({ cwd: tmpDir, treeShake: true });
+      const graph = await analyzer.analyze(['entry.ts']);
+
+      const utilsNode = graph.nodes.get('utils.ts');
+      expect(utilsNode).toBeDefined();
+      expect(utilsNode?.isTreeShaken).toBe(true);
+      expect(utilsNode?.content).toContain('export function usedHelper');
+      expect(utilsNode?.content).toContain('function internalMath');
+      expect(utilsNode?.content).not.toContain('return "this should be pruned by tree-shaker"');
+      expect(utilsNode?.content).toContain('pruned 1 unused symbol(s): unusedHeavyFunction');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('automatically resolves Monorepo workspace packages (packages/*)', async () => {
+    const fs = await import('node:fs');
+    const os = await import('node:os');
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'scp-monorepo-'));
+    try {
+      fs.writeFileSync(
+        path.join(tmpDir, 'package.json'),
+        JSON.stringify({ name: 'root-monorepo', private: true, workspaces: ['packages/*'] }),
+        'utf-8'
+      );
+
+      const sharedDir = path.join(tmpDir, 'packages', 'shared', 'src');
+      const webDir = path.join(tmpDir, 'packages', 'web', 'src');
+      fs.mkdirSync(sharedDir, { recursive: true });
+      fs.mkdirSync(webDir, { recursive: true });
+
+      fs.writeFileSync(
+        path.join(tmpDir, 'packages', 'shared', 'package.json'),
+        JSON.stringify({ name: '@acme/shared', main: './src/index.ts' }),
+        'utf-8'
+      );
+      fs.writeFileSync(
+        path.join(sharedDir, 'index.ts'),
+        'export const SHARED_VERSION = "1.0.0";\n',
+        'utf-8'
+      );
+
+      fs.writeFileSync(
+        path.join(webDir, 'app.ts'),
+        `import { SHARED_VERSION } from '@acme/shared';\nconsole.log(SHARED_VERSION);\n`,
+        'utf-8'
+      );
+
+      const analyzer = new DependencyAnalyzer({ cwd: tmpDir });
+      const graph = await analyzer.analyze(['packages/web/src/app.ts']);
+
+      expect(graph.nodes.has('packages/shared/src/index.ts')).toBe(true);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
 });
