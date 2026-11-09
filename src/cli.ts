@@ -11,6 +11,14 @@ import { AstCache } from './cache.js';
 import { ProjectMemoryManager } from './memory.js';
 import { TaskManager } from './task.js';
 import { runSandboxedCommand } from './sandbox.js';
+import {
+  buildKnowledgeGraph,
+  loadOrBuildKnowledgeGraph,
+  generateGraphReport,
+  explainEntity,
+  traceShortestPath,
+  queryKnowledgeGraph,
+} from './knowledge-graph.js';
 import type { OutputFormat } from './types.js';
 
 const program = new Command();
@@ -20,7 +28,7 @@ program
   .description(
     '📦 smart-context-packer: AI-optimized dependency graph context packer for LLM coding assistants'
   )
-  .version('2.4.0', '-v, --version', 'Output current version')
+  .version('2.5.0', '-v, --version', 'Output current version')
   .argument('[targets...]', 'Target entry file(s) or directories to analyze and pack')
   .option('-d, --depth <number>', 'Dependency traversal depth (default: 2)', '2')
   .option('-r, --reverse', 'Include reverse dependencies (files importing target)', false)
@@ -34,6 +42,11 @@ program
   .option('--task-done <id>', 'Mark task or checklist item completed in .scp/tasks.json')
   .option('--repo-map [tokens]', 'Generate architectural PageRank repo-map of key hubs')
   .option('--visualize [path]', 'Generate interactive HTML canvas visualizer report')
+  .option('--graphify', 'Build multi-relational Knowledge Graph (.scp/graph.json & .scp/GRAPH_REPORT.md)', false)
+  .option('--explain <entity>', 'Explain a symbol, class, function, file, or concept from the Knowledge Graph')
+  .option('--path <from:to>', 'Trace shortest relational path between two symbols/entities in the Knowledge Graph')
+  .option('--graph-query <question>', 'Query the Knowledge Graph using BFS/DFS subgraph traversal')
+  .option('--dfs', 'Use Depth-First Search (DFS) when running --graph-query (default: BFS)', false)
   .option('-f, --format <format>', 'Output format: md (Markdown) or xml (XML)', 'md')
   .option('-o, --output <file>', 'Output file path (default: .context-pack.md)', '.context-pack.md')
   .option('-c, --copy', 'Copy packed prompt directly to system clipboard', false)
@@ -217,6 +230,70 @@ program
         return;
       }
 
+      // 7b. Handle Knowledge Graph standalone queries (--explain, --path, --graph-query, or standalone --graphify)
+      if (options.explain) {
+        const kg = await loadOrBuildKnowledgeGraph(process.cwd());
+        const res = explainEntity(kg, String(options.explain));
+        console.log('');
+        console.log(res.formattedExplanation);
+        console.log('');
+        return;
+      }
+
+      if (options.path) {
+        const rawPath = String(options.path);
+        const sepIdx = rawPath.indexOf(':') !== -1 ? rawPath.indexOf(':') : rawPath.indexOf(',');
+        if (sepIdx === -1) {
+          console.error(pc.red('Error: --path requires "from:to" format (e.g. scp --path "McpServer:AstCache")'));
+          process.exit(1);
+        }
+        const from = rawPath.slice(0, sepIdx).trim();
+        const to = rawPath.slice(sepIdx + 1).trim();
+        const kg = await loadOrBuildKnowledgeGraph(process.cwd());
+        const res = traceShortestPath(kg, from, to);
+        console.log('');
+        console.log(res.formattedPath);
+        console.log('');
+        return;
+      }
+
+      if (options.graphQuery) {
+        const kg = await loadOrBuildKnowledgeGraph(process.cwd());
+        const budget = options.maxTokens ? parseInt(options.maxTokens, 10) || 2000 : 2000;
+        const res = queryKnowledgeGraph(kg, String(options.graphQuery), {
+          mode: options.dfs ? 'dfs' : 'bfs',
+          budget,
+        });
+        console.log('');
+        console.log(res.formattedOutput);
+        console.log('');
+        return;
+      }
+
+      if (options.graphify && targets.length === 0 && !options.diff && !options.staged && !options.commit && !options.pr && !options.query && !options.task) {
+        const kg = await buildKnowledgeGraph(process.cwd(), { persist: true });
+        const report = generateGraphReport(kg);
+        if (options.stdout) {
+          process.stdout.write(report + '\n');
+          return;
+        }
+        const extCount = kg.edges.filter((e) => e.confidence === 'EXTRACTED').length;
+        const infCount = kg.edges.filter((e) => e.confidence === 'INFERRED').length;
+        const ambCount = kg.edges.filter((e) => e.confidence === 'AMBIGUOUS').length;
+        const commCount = Object.keys(kg.communities).length;
+        console.log('');
+        console.log(pc.green('✔ ') + pc.bold(pc.white(`Knowledge Graph built successfully! (.scp/graph.json & .scp/GRAPH_REPORT.md)`)));
+        console.log(
+          pc.gray(
+            `  Nodes: ${kg.nodes.length} | Edges: ${kg.edges.length} (EXTRACTED: ${extCount}, INFERRED: ${infCount}, AMBIGUOUS: ${ambCount}) | Communities: ${commCount}`
+          )
+        );
+        console.log(pc.gray('─'.repeat(70)));
+        console.log(report);
+        console.log('');
+        return;
+      }
+
       // 8. Execute Context Packing
       const parsedDepth = parseInt(options.depth, 10);
       if (isNaN(parsedDepth) || parsedDepth < 0) {
@@ -267,6 +344,7 @@ program
           includeDeps: options.deps !== false,
           repoMap: repoMapOpt,
           visualize: visualizeOpt,
+          graphify: Boolean(options.graphify),
           noCache,
           diff: options.diff,
           staged: options.staged,
@@ -305,6 +383,9 @@ program
         }
         if (result.visualizerPath) {
           console.log(pc.green('✔ ') + pc.bold(pc.cyan(`Interactive Visualizer generated at ${result.visualizerPath}`)));
+        }
+        if (result.graphReportPath) {
+          console.log(pc.green('✔ ') + pc.bold(pc.magenta(`Knowledge Graph Report generated at ${result.graphReportPath}`)));
         }
         console.log('');
       }

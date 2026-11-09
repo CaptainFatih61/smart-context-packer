@@ -1,8 +1,27 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import type { MemoryEntry, ProjectMemory, MemoryCategory } from './types.js';
+import type { MemoryEntry, ProjectMemory, MemoryCategory, MemoryOutcome } from './types.js';
 
 const MEMORY_VERSION = '1.0';
+
+export interface WorkMemoryLessons {
+  preferredSources: Array<{
+    pattern: string;
+    uses: number;
+    score: number;
+    content: string;
+  }>;
+  deadEnds: Array<{
+    question: string;
+    relatedNodes: string[];
+    content: string;
+  }>;
+  corrections: Array<{
+    pattern: string;
+    correction: string;
+    content: string;
+  }>;
+}
 
 /**
  * Checks whether a relative file path matches a memory pattern (exact, glob, or folder prefix).
@@ -78,7 +97,7 @@ export class ProjectMemoryManager {
   }
 
   /**
-   * Adds and persists a new memory entry.
+   * Adds and persists a new memory entry, or updates corroboration counters for useful outcomes.
    */
   public add(
     entry: {
@@ -86,9 +105,33 @@ export class ProjectMemoryManager {
       content: string;
       category?: MemoryCategory;
       tags?: string[];
+      outcome?: MemoryOutcome;
+      relatedNodes?: string[];
+      question?: string;
+      correction?: string;
     }
   ): MemoryEntry {
     const memories = this.load();
+
+    // If outcome === 'useful', check if a memory with the same pattern & outcome already exists to increment uses
+    if (entry.outcome === 'useful') {
+      const existing = memories.find(
+        (m) => m.pattern === entry.pattern && m.outcome === 'useful'
+      );
+      if (existing) {
+        existing.uses = (existing.uses || 1) + 1;
+        existing.score = Number(Math.min(1.0, (existing.score || 0.7) + 0.05).toFixed(2));
+        existing.content = entry.content.trim();
+        if (entry.relatedNodes && entry.relatedNodes.length > 0) {
+          existing.relatedNodes = Array.from(
+            new Set([...(existing.relatedNodes || []), ...entry.relatedNodes])
+          );
+        }
+        this.saveAll(memories);
+        return existing;
+      }
+    }
+
     const id = `mem_${Date.now().toString(36)}_${Math.random().toString(36).substring(7)}`;
 
     const newEntry: MemoryEntry = {
@@ -98,11 +141,53 @@ export class ProjectMemoryManager {
       content: entry.content.trim(),
       createdAt: new Date().toISOString(),
       tags: entry.tags,
+      outcome: entry.outcome,
+      uses: entry.outcome === 'useful' ? 1 : undefined,
+      score: entry.outcome === 'useful' ? 0.8 : entry.outcome === 'dead_end' ? 0.0 : undefined,
+      relatedNodes: entry.relatedNodes,
+      question: entry.question,
+      correction: entry.correction,
     };
 
     memories.push(newEntry);
     this.saveAll(memories);
     return newEntry;
+  }
+
+  /**
+   * Aggregates self-improving work-memory lessons (preferred sources, known dead ends, and corrections).
+   */
+  public getWorkMemoryLessons(): WorkMemoryLessons {
+    const memories = this.load();
+    const preferredSources: WorkMemoryLessons['preferredSources'] = [];
+    const deadEnds: WorkMemoryLessons['deadEnds'] = [];
+    const corrections: WorkMemoryLessons['corrections'] = [];
+
+    for (const m of memories) {
+      if (m.outcome === 'useful') {
+        preferredSources.push({
+          pattern: m.pattern,
+          uses: m.uses || 1,
+          score: m.score ?? 0.8,
+          content: m.content,
+        });
+      } else if (m.outcome === 'dead_end') {
+        deadEnds.push({
+          question: m.question || m.pattern,
+          relatedNodes: m.relatedNodes || [],
+          content: m.content,
+        });
+      } else if (m.outcome === 'corrected' && m.correction) {
+        corrections.push({
+          pattern: m.pattern,
+          correction: m.correction,
+          content: m.content,
+        });
+      }
+    }
+
+    preferredSources.sort((a, b) => b.uses - a.uses || b.score - a.score);
+    return { preferredSources, deadEnds, corrections };
   }
 
   /**

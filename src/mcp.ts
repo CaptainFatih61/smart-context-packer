@@ -85,6 +85,14 @@ import { sandboxOutput } from './sandbox.js';
 import { calculateBlastRadius } from './blast-radius.js';
 import { stripStringsAndComments } from './filter.js';
 import { estimateTokensForText } from './tokens.js';
+import {
+  buildKnowledgeGraph,
+  loadOrBuildKnowledgeGraph,
+  generateGraphReport,
+  explainEntity,
+  traceShortestPath,
+  queryKnowledgeGraph,
+} from './knowledge-graph.js';
 
 /**
  * Surgically extracts the exact lines of a symbol declaration and body from source code.
@@ -526,6 +534,24 @@ export const MCP_TOOLS = [
           items: { type: 'string' },
           description: 'Optional tags for categorization',
         },
+        outcome: {
+          type: 'string',
+          enum: ['useful', 'dead_end', 'corrected'],
+          description: 'Reflection outcome: "useful" (corroborated pattern), "dead_end" (failed attempt), or "corrected"',
+        },
+        question: {
+          type: 'string',
+          description: 'Optional question or hypothesis associated with this memory',
+        },
+        correction: {
+          type: 'string',
+          description: 'Optional correction note when outcome is "corrected"',
+        },
+        relatedNodes: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Optional Knowledge Graph node IDs or symbols associated with this memory',
+        },
         cwd: {
           type: 'string',
           description: 'Workspace root directory (defaults to current project root)',
@@ -774,6 +800,103 @@ export const MCP_TOOLS = [
       },
     },
   },
+  {
+    name: 'build_knowledge_graph',
+    description:
+      'Build or refresh the multi-relational Symbol & Concept Knowledge Graph (.scp/graph.json & .scp/GRAPH_REPORT.md) with Louvain community clustering, God Nodes, Surprising Connections, and # WHY: rationale extraction',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        targets: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Optional target files or directories to scope the knowledge graph (defaults to entire workspace)',
+        },
+        maxFiles: {
+          type: 'number',
+          description: 'Maximum number of files to analyze (default: 400)',
+        },
+        cwd: {
+          type: 'string',
+          description: 'Workspace root directory (defaults to current project root)',
+        },
+      },
+    },
+  },
+  {
+    name: 'query_knowledge_graph',
+    description:
+      'Query the Knowledge Graph using constrained vocabulary expansion and BFS/DFS subgraph traversal within a strict token budget',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        question: {
+          type: 'string',
+          description: 'Natural language question or architectural query (e.g. "how does AST caching and dependency analysis work")',
+        },
+        mode: {
+          type: 'string',
+          enum: ['bfs', 'dfs'],
+          description: 'Traversal mode: "bfs" (breadth-first neighborhood) or "dfs" (deep call/dependency chain, default: "bfs")',
+        },
+        budget: {
+          type: 'number',
+          description: 'Maximum token budget for the subgraph report (default: 2000)',
+        },
+        cwd: {
+          type: 'string',
+          description: 'Workspace root directory (defaults to current project root)',
+        },
+      },
+      required: ['question'],
+    },
+  },
+  {
+    name: 'trace_shortest_path',
+    description:
+      'Find and explain the shortest relational path between any two symbols, files, or concepts in the Knowledge Graph with edge confidence scores (EXTRACTED, INFERRED, AMBIGUOUS)',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        from: {
+          type: 'string',
+          description: 'Source symbol, file path, or concept name',
+        },
+        to: {
+          type: 'string',
+          description: 'Target symbol, file path, or concept name',
+        },
+        maxHops: {
+          type: 'number',
+          description: 'Maximum hops to search (default: 8)',
+        },
+        cwd: {
+          type: 'string',
+          description: 'Workspace root directory (defaults to current project root)',
+        },
+      },
+      required: ['from', 'to'],
+    },
+  },
+  {
+    name: 'explain_entity',
+    description:
+      'Generate a complete architectural explanation of a symbol, class, function, file, or concept from the Knowledge Graph including community, callers, callees, and # WHY: rationale notes',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        entity: {
+          type: 'string',
+          description: 'Name or ID of the symbol, class, function, file, or concept to explain',
+        },
+        cwd: {
+          type: 'string',
+          description: 'Workspace root directory (defaults to current project root)',
+        },
+      },
+      required: ['entity'],
+    },
+  },
 ];
 
 /**
@@ -812,7 +935,7 @@ export class McpServer {
               },
               serverInfo: {
                 name: 'smart-context-packer',
-                version: '2.4.0',
+                version: '2.5.0',
               },
             },
           };
@@ -1076,6 +1199,10 @@ export class McpServer {
               content: String(args.content),
               category: (args.category as any) || 'architecture',
               tags: Array.isArray(args.tags) ? args.tags.map(String) : [],
+              outcome: args.outcome as any,
+              question: args.question ? String(args.question) : undefined,
+              correction: args.correction ? String(args.correction) : undefined,
+              relatedNodes: Array.isArray(args.relatedNodes) ? args.relatedNodes.map(String) : undefined,
             });
 
             return {
@@ -1085,7 +1212,7 @@ export class McpServer {
                 content: [
                   {
                     type: 'text',
-                    text: `✔ Stored memory [${entry.id}] (${entry.category.toUpperCase()}) linked to pattern "${entry.pattern}":\n"${entry.content}"`,
+                    text: `✔ Stored memory [${entry.id}] (${entry.category.toUpperCase()}, outcome: ${entry.outcome || 'useful'}) linked to pattern "${entry.pattern}":\n"${entry.content}"`,
                   },
                 ],
               },
@@ -1679,6 +1806,98 @@ export class McpServer {
                   {
                     type: 'text',
                     text: lines.join('\n'),
+                  },
+                ],
+              },
+            };
+          }
+
+          if (toolName === 'build_knowledge_graph') {
+            const rawTargets = Array.isArray(args.targets) ? args.targets.map(String) : [];
+            const effectiveCwd = resolveEffectiveCwd(rawTargets, args.cwd as string | undefined);
+            const maxFiles = typeof args.maxFiles === 'number' && args.maxFiles > 0 ? args.maxFiles : 400;
+
+            const kg = await buildKnowledgeGraph(effectiveCwd, {
+              targets: rawTargets.length > 0 ? rawTargets : undefined,
+              maxFiles,
+              persist: true,
+            });
+            const reportText = generateGraphReport(kg);
+
+            return {
+              jsonrpc: '2.0',
+              id,
+              result: {
+                content: [
+                  {
+                    type: 'text',
+                    text: reportText,
+                  },
+                ],
+              },
+            };
+          }
+
+          if (toolName === 'query_knowledge_graph') {
+            const question = String(args.question || '').trim();
+            const mode: 'bfs' | 'dfs' = args.mode === 'dfs' ? 'dfs' : 'bfs';
+            const budget = typeof args.budget === 'number' && args.budget > 0 ? args.budget : 2000;
+            const effectiveCwd = resolveEffectiveCwd([], args.cwd as string | undefined);
+
+            const kg = await loadOrBuildKnowledgeGraph(effectiveCwd);
+            const res = queryKnowledgeGraph(kg, question, { mode, budget, cwd: effectiveCwd });
+
+            return {
+              jsonrpc: '2.0',
+              id,
+              result: {
+                content: [
+                  {
+                    type: 'text',
+                    text: res.formattedOutput,
+                  },
+                ],
+              },
+            };
+          }
+
+          if (toolName === 'trace_shortest_path') {
+            const from = String(args.from || '').trim();
+            const to = String(args.to || '').trim();
+            const effectiveCwd = resolveEffectiveCwd([], args.cwd as string | undefined);
+
+            const kg = await loadOrBuildKnowledgeGraph(effectiveCwd);
+            const res = traceShortestPath(kg, from, to);
+
+            return {
+              jsonrpc: '2.0',
+              id,
+              result: {
+                content: [
+                  {
+                    type: 'text',
+                    text: res.formattedPath,
+                  },
+                ],
+              },
+            };
+          }
+
+          if (toolName === 'explain_entity') {
+            const entity = String(args.entity || '').trim();
+            const effectiveCwd = resolveEffectiveCwd([], args.cwd as string | undefined);
+
+            const kg = await loadOrBuildKnowledgeGraph(effectiveCwd);
+            const res = explainEntity(kg, entity);
+
+            return {
+              jsonrpc: '2.0',
+              id,
+              result: {
+                content: [
+                  {
+                    type: 'text',
+                    text: res.formattedExplanation,
                   },
                 ],
               },

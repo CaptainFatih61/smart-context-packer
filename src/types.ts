@@ -1,7 +1,93 @@
 export type NodeType = 'target' | 'dependency';
 export type OutputFormat = 'md' | 'xml';
 export type RiskLevel = 'LOW' | 'MEDIUM' | 'HIGH';
-export type MemoryCategory = 'architecture' | 'gotcha' | 'convention' | 'bugfix';
+export type MemoryCategory = 'architecture' | 'gotcha' | 'convention' | 'bugfix' | 'decision' | 'rule';
+export type MemoryOutcome = 'useful' | 'dead_end' | 'corrected';
+export type EdgeConfidence = 'EXTRACTED' | 'INFERRED' | 'AMBIGUOUS';
+
+export type KnowledgeNodeKind =
+  | 'file'
+  | 'class'
+  | 'interface'
+  | 'function'
+  | 'method'
+  | 'type'
+  | 'rationale'
+  | 'concept';
+
+export type KnowledgeEdgeRelation =
+  | 'contains'
+  | 'defines'
+  | 'imports'
+  | 'calls'
+  | 'inherits'
+  | 'implements'
+  | 'uses'
+  | 'rationale_for'
+  | 'documents';
+
+export interface KnowledgeNode {
+  id: string;
+  label: string;
+  kind: KnowledgeNodeKind;
+  sourceFile: string;
+  sourceLocation?: string;
+  community?: number;
+  degree?: number;
+  rationaleText?: string;
+}
+
+export interface KnowledgeEdge {
+  source: string;
+  target: string;
+  relation: KnowledgeEdgeRelation;
+  confidence: EdgeConfidence;
+  confidenceScore: number;
+}
+
+export interface GodNodeEntry {
+  id: string;
+  label: string;
+  kind: KnowledgeNodeKind;
+  sourceFile: string;
+  sourceLocation?: string;
+  degree: number;
+  community?: number;
+}
+
+export interface SurprisingConnection {
+  source: string;
+  target: string;
+  sourceLabel: string;
+  targetLabel: string;
+  sourceFile: string;
+  targetFile: string;
+  relation: KnowledgeEdgeRelation;
+  confidence: EdgeConfidence;
+  surpriseScore: number;
+  reasons: string[];
+}
+
+export interface SuggestedQuestion {
+  type: 'bridge' | 'ambiguous' | 'low_cohesion' | 'isolated' | 'inferred';
+  question: string;
+  relatedNodes: string[];
+}
+
+export interface KnowledgeGraphData {
+  schemaVersion: number;
+  builtAt: string;
+  builtAtCommit?: string;
+  rootCwd: string;
+  nodes: KnowledgeNode[];
+  edges: KnowledgeEdge[];
+  communities: Record<number, string[]>;
+  communityLabels: Record<number, string>;
+  cohesionScores: Record<number, number>;
+  godNodes: GodNodeEntry[];
+  surprisingConnections: SurprisingConnection[];
+  suggestedQuestions: SuggestedQuestion[];
+}
 
 export interface FileStats {
   lines: number;
@@ -80,6 +166,12 @@ export interface MemoryEntry {
   content: string;
   createdAt: string;
   tags?: string[];
+  outcome?: MemoryOutcome;
+  uses?: number;
+  score?: number;
+  relatedNodes?: string[];
+  question?: string;
+  correction?: string;
 }
 
 export interface ProjectMemory {
@@ -215,6 +307,8 @@ export interface PackOptions extends AnalyzerOptions, Omit<FormatterOptions, 'bl
   hud?: boolean;
   /** Pull Request number, branch, or URL to pack modified files and diff patch */
   pr?: string | number;
+  /** Builds the full Graphify Knowledge Graph (.scp/graph.json & .scp/GRAPH_REPORT.md) */
+  graphify?: boolean;
 }
 
 export interface PackResult {
@@ -230,6 +324,8 @@ export interface PackResult {
   visualizerPath?: string;
   taskDirective?: string;
   dependenciesManifest?: string;
+  knowledgeGraph?: KnowledgeGraphData;
+  graphReportPath?: string;
   cacheStats?: {
     hits: number;
     misses: number;

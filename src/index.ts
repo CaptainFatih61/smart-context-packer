@@ -20,6 +20,8 @@ import { generateRepoMap } from './repo-map.js';
 import { writeVisualizerReport } from './visualizer.js';
 import { TaskManager, type TaskRecord } from './task.js';
 import { DependencyManifestResolver } from './dependencies.js';
+import { buildKnowledgeGraph } from './knowledge-graph.js';
+import type { KnowledgeGraphData } from './types.js';
 import fg from 'fast-glob';
 
 export * from './types.js';
@@ -43,6 +45,7 @@ export * from './task.js';
 export * from './dependencies.js';
 export * from './hud.js';
 export * from './sandbox.js';
+export * from './knowledge-graph.js';
 
 /**
  * Main programmatic API to pack dependencies and generate AI context prompts.
@@ -176,6 +179,17 @@ export async function packContext(options: PackOptions): Promise<PackResult> {
     (graph as any).repoMapText = repoMapResult.mapText;
   }
 
+  // Build Knowledge Graph (.scp/graph.json & .scp/GRAPH_REPORT.md) if requested
+  let knowledgeGraph: KnowledgeGraphData | undefined;
+  let graphReportPath: string | undefined;
+  if (options.graphify) {
+    knowledgeGraph = await buildKnowledgeGraph(cwd, {
+      targets: Array.from(graph.nodes.keys()),
+      persist: true,
+    });
+    graphReportPath = path.join(cwd, '.scp', 'GRAPH_REPORT.md');
+  }
+
   // Generate interactive HTML visualizer if requested
   let visualizerPath: string | undefined;
   if (options.visualize) {
@@ -183,6 +197,7 @@ export async function packContext(options: PackOptions): Promise<PackResult> {
     visualizerPath = writeVisualizerReport(graph, {
       outputPath: customOut,
       blastRadius: graph.blastRadius,
+      knowledgeGraph,
     });
   }
 
@@ -251,6 +266,8 @@ export async function packContext(options: PackOptions): Promise<PackResult> {
     memories: graph.memories,
     repoMap: repoMapResult,
     visualizerPath,
+    knowledgeGraph,
+    graphReportPath,
     taskDirective,
     dependenciesManifest: dependenciesManifestText,
     cacheStats: analyzer.getCacheStats(),

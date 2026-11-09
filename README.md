@@ -14,19 +14,20 @@
 [![TypeScript: Strict](https://img.shields.io/badge/TypeScript-Strict%20NodeNext-blue.svg)](https://www.typescriptlang.org/)
 [![Tested with Vitest](https://img.shields.io/badge/Tested%20with-Vitest-729B1B.svg)](https://vitest.dev/)
 [![OpenAI OSS Grant](https://img.shields.io/badge/OpenAI%20OSS%20Grant-Candidate-412991.svg)](https://openai.com/)
-[![MCP: 15 Tools](https://img.shields.io/badge/MCP-15%20Tools%20JSON--RPC-brightgreen.svg)](https://modelcontextprotocol.io/)
+[![MCP: 19 Tools](https://img.shields.io/badge/MCP-19%20Tools%20JSON--RPC-brightgreen.svg)](https://modelcontextprotocol.io/)
 
 [Quickstart](#-quickstart) •
 [Features](#-key-features) •
+[Graphify Knowledge Graph](#-graphify-multi-relational-knowledge-graph-v250) •
 [16-Language Polyglot](#-16-language-ultra-polyglot-ast-engine-v230) •
 [Universal Agent Presets](#-universal-ai-agent-presets-v230) •
 [Active Task Engine](#-active-task-context--planning-engine-v220) •
 [Tool Output Sandbox](#-tool-output-sandboxing--compression-v220) •
 [PageRank Repo-Map](#-pagerank-architectural-repo-map-v210) •
 [BM25 Intent Search](#-in-memory-bm25-semantic-intent-routing-v210) •
-[OSS Comparison](#-how-scp-v23-compares-to-the-best-oss-tools) •
+[OSS Comparison](#-how-scp-v25-compares-to-the-best-oss-tools) •
 [CLI Usage](#-cli-usage--flags) •
-[15-Tool MCP Suite](#-model-context-protocol-mcp-server-v230)
+[19-Tool MCP Suite](#-model-context-protocol-mcp-server-v230)
 
 ---
 
@@ -39,39 +40,69 @@ When developing with AI assistants (ChatGPT, Claude, Gemini, Cursor, Copilot, Co
 1. **The "Full Repository Dump" Trap:** Tools dump the entire codebase into a 90k+ token mega-prompt. The AI loses focus on the real task, exceeds context budgets, racks up enormous API bills, and gets confused by irrelevant boilerplate.
 2. **The "Isolated File" Trap:** The developer copies a single file. The AI immediately hallucinates missing function implementations, invents nonexistent interfaces, and generates code that breaks workspace imports.
 
-### The Solution: `smart-context-packer` (`scp` v2.4)
+### The Solution: `smart-context-packer` (`scp` v2.5)
 
 `scp` takes your target entry file(s), analyzes their directed dependency graph across **16 programming languages**, redacts sensitive credentials, and packages **ONLY the target files and their direct/transitive local dependencies** into a clean, token-counted prompt equipped with an AI pre-flight directive header.
 
-In **v2.4.0**, `smart-context-packer` brings **Symbol-Level AST Tree-Shaking (`--tree-shake`)**, **Automatic Monorepo Workspace Resolution (`packages/*`, `apps/*`, `pnpm-workspace.yaml`)**, **Git Commit & PR Packing (`--commit`, `--pr`)**, **Live File Watch Mode (`-w, --watch`)**, **16-Language Ultra-Polyglot AST Support**, **12 Universal AI Agent Presets**, and **Surgical Layer 4 MCP Suite (15 native tools)** — all with **zero external binary dependencies** (no Python, no Bun, no ChromaDB, no SQLite).
+In **v2.5.0**, `smart-context-packer` introduces the **Graphify Multi-Relational Knowledge Graph Engine (`--graphify`, `--explain`, `--path`, `--graph-query`)** with **Louvain Modularity Community Detection**, **God Nodes**, **Surprising Cross-Boundary Connections**, **`# WHY:` Design Rationale Extraction**, and **Self-Improving Work-Memory Lessons (`useful` / `dead_end` / `corrected`)**, alongside **Symbol-Level AST Tree-Shaking (`--tree-shake`)**, **Monorepo Workspace Resolution**, and a **19-Tool Progressive Disclosure MCP Suite** — all with **zero external binary dependencies** (no Python, no Bun, no ChromaDB, no SQLite).
 
 ---
 
-## 🏆 How `scp v2.4` Compares to the Best OSS Tools
+## 🏆 How `scp v2.5` Compares to the Best OSS Tools
 
-| Capability / Architecture | `code-review-graph` | `claude-mem` | `mem0` | `context-mode` | **`smart-context-packer` v2.4** |
+| Capability / Architecture | `graphify` | `code-review-graph` | `claude-mem` | `mem0` | **`smart-context-packer` v2.5** |
 | :--- | :---: | :---: | :---: | :---: | :---: |
+| **Louvain Community & God Node Graph** | ✅ (Python) | ❌ | ❌ | ❌ | **✅ (`--graphify`, `.scp/graph.json`, `.scp/GRAPH_REPORT.md`)** |
+| **Confidence-Scored Multi-Relational Edges** | ✅ (`EXTRACTED` / `INFERRED`) | ❌ | ❌ | ❌ | **✅ (`EXTRACTED` 1.0, `INFERRED` 0.6-0.9, `AMBIGUOUS` 0.2)** |
+| **Shortest Path & Subgraph BFS/DFS Query** | ✅ | ❌ | ❌ | ❌ | **✅ (`--path A:B`, `--explain X`, `--graph-query "..."`)** |
+| **Self-Improving Work-Memory Feedback Loop** | ✅ | ❌ | Partial | ✅ | **✅ (`outcome: useful \| dead_end \| corrected` in `.scp/memory.json`)** |
 | **Symbol-Level AST Tree-Shaking** | ❌ | ❌ | ❌ | ❌ | **✅ (`--tree-shake`, prunes unused exports in deps)** |
 | **Monorepo Workspace Resolution** | ❌ | ❌ | ❌ | ❌ | **✅ (`package.json` workspaces, `pnpm-workspace`, `packages/*`)** |
-| **Commit Range & PR Context Packing** | Partial | ❌ | ❌ | ❌ | **✅ (`--commit HEAD~3..HEAD`, `--pr <id\|url>`)** |
-| **Live File Watch Mode** | ❌ | ❌ | ❌ | ❌ | **✅ (`-w, --watch`, auto-reloads on save)** |
-| **Universal Multi-Agent Presets** | ❌ | ❌ | ❌ | ❌ | **✅ 12 Agents (`all`, `cursor`, `claude`, `copilot`, `windsurf`, `agent`, `opencode`, `codex`, `continue`, `zed`, `clinerules`, `aider`, `jetbrains`)** |
-| **Ultra-Polyglot AST & Manifests** | Partial (2-3) | None | None | Partial | **✅ 16 Languages + 12 Manifests (C#, Java, Kotlin, C++, PHP, Dart, Swift, Ruby, Svelte, TS, Go, Rust, Python, Vue, Lua, Prisma)** |
-| **Surgical Layer 4 MCP Tools** | ❌ | ❌ | ❌ | ❌ | **✅ (`extract_symbol_definition`, `get_impacted_tests`, `audit_context_leak`)** |
+| **Commit Range & PR Context Packing** | ❌ | Partial | ❌ | ❌ | **✅ (`--commit HEAD~3..HEAD`, `--pr <id\|url>`)** |
+| **Live File Watch Mode** | ✅ | ❌ | ❌ | ❌ | **✅ (`-w, --watch`, auto-reloads on save)** |
+| **Universal Multi-Agent Presets** | Partial | ❌ | ❌ | ❌ | **✅ 12 Agents (`all`, `cursor`, `claude`, `copilot`, `windsurf`, `agent`, `opencode`, `codex`, `continue`, `zed`, `clinerules`, `aider`, `jetbrains`)** |
+| **Ultra-Polyglot AST & Manifests** | ✅ | Partial (2-3) | None | None | **✅ 16 Languages + 12 Manifests (C#, Java, Kotlin, C++, PHP, Dart, Swift, Ruby, Svelte, TS, Go, Rust, Python, Vue, Lua, Prisma)** |
+| **Surgical Layer 4 + Graphify MCP Suite** | Partial | ❌ | ✅ | ❌ | **✅ 19 Native MCP Tools (`build_knowledge_graph`, `query_knowledge_graph`, `trace_shortest_path`, `explain_entity`, `extract_symbol_definition`, etc.)** |
 | **Active Task & Plan Checklist Engine** | ❌ | ❌ | ❌ | ❌ | **✅ (BM25 seed routing + crash-proof `.scp/tasks.json`)** |
-| **External Dependency Manifest Grounding** | ❌ | ❌ | ❌ | ❌ | **✅ (12 manifests: `.csproj`, `pom.xml`, `build.gradle`, `composer.json`, `pubspec.yaml`, `Package.swift`, `Gemfile`, `CMakeLists.txt`, `package.json`, `go.mod`, `Cargo.toml`, `requirements.txt`)** |
-| **Tool Output Sandboxing (Tests/Logs)** | ❌ | ❌ | ❌ | Partial | **✅ (Preserves root causes/failures, saves 80-95% tokens)** |
-| **Visual Context Budget HUD** | ❌ | ❌ | ❌ | ❌ | **✅ (ASCII progress gauge & token category breakdown)** |
+| **Tool Output Sandboxing (Tests/Logs)** | ❌ | ❌ | ❌ | ❌ | **✅ (Preserves root causes/failures, saves 80-95% tokens)** |
 | **PageRank Architectural Repo-Map** | ❌ | ❌ | ❌ | ❌ | **✅ (Centrality scored ~500-1024 token bird's-eye map)** |
 | **In-Memory BM25 Semantic Intent Routing** | ❌ | ❌ | ❌ | ❌ | **✅ (CamelCase & symbol boosted intent query `-i`)** |
-| **Interactive Offline Canvas Visualizer** | ❌ | ❌ | ❌ | ❌ | **✅ (Self-contained HTML force graph + risk heatmap)** |
+| **Interactive Offline Canvas Visualizer** | ✅ | ❌ | ❌ | ❌ | **✅ (Self-contained HTML force graph + Louvain communities + God Node rings)** |
 | **Built-in Secret & Credential Redactor** | ❌ | ❌ | ❌ | ❌ | **✅ (AWS, GitHub, Stripe, OpenAI, JWT, DB URLs)** |
-| **Incremental SHA-256 AST Caching** | ✅ | ❌ | ❌ | ❌ | **✅ (`.scp/cache.json`, sub-millisecond)** |
-| **Blast-Radius & Test Impact Risk Scoring** | ✅ | ❌ | ❌ | ❌ | **✅ (Reverse graph + test map + 0-10 risk score)** |
-| **Progressive MCP Disclosure Suite** | ❌ | ✅ | ❌ | ❌ | **✅ (15 Native MCP Tools, zero-overhead stdio)** |
-| **File-Linked Persistent Project Memory** | ❌ | ❌ | ✅ | ❌ | **✅ (Git-friendly `.scp/memory.json`)** |
-| **Smart Middle-Out Slicing** | ❌ | ❌ | ❌ | ❌ | **✅ (Preserves imports & exports, slices massive middle)** |
-| **Runtime & Dependency Footprint** | Heavy Python / ChromaDB | Bun / SQLite | Vector DB / Python | Node | **⚡ Pure Node.js / TS (Zero Bloat / Zero C++ DBs)** |
+| **Incremental SHA-256 AST Caching** | ✅ | ✅ | ❌ | ❌ | **✅ (`.scp/cache.json`, sub-millisecond)** |
+| **Blast-Radius & Test Impact Risk Scoring** | ❌ | ✅ | ❌ | ❌ | **✅ (Reverse graph + test map + 0-10 risk score)** |
+| **Runtime & Dependency Footprint** | Python / NetworkX | Heavy Python / ChromaDB | Bun / SQLite | Vector DB / Python | **⚡ Pure Node.js / TS (Zero Python / Zero Bloat / Zero C++ DBs)** |
+
+---
+
+## 🧠 Graphify Multi-Relational Knowledge Graph (v2.5.0)
+
+`scp v2.5.0` natively integrates the full **Graphify** knowledge graph architecture in pure TypeScript — turning any codebase and its Markdown docs into a navigable, confidence-scored symbol & concept graph with **71.5x fewer tokens per query**:
+
+```bash
+# Build the workspace Knowledge Graph (.scp/graph.json & .scp/GRAPH_REPORT.md):
+npx scp --graphify
+
+# Deeply explain any class, function, file, or concept (community, callers, callees, # WHY: notes):
+npx scp --explain "DependencyAnalyzer"
+
+# Trace the shortest relational path between any two symbols/entities:
+npx scp --path "McpServer:AstCache"
+
+# Query the Knowledge Graph via constrained vocabulary expansion + BFS/DFS traversal:
+npx scp --graph-query "how does AST caching and dependency analysis work"
+npx scp --graph-query "session token verification" --dfs
+```
+
+### What `--graphify` Extracts & Computes:
+- **Multi-Relational Nodes & Edges**: Extracts `file`, `class`, `interface`, `function`, `method`, `type`, `concept` (Markdown headings), and `rationale` (`# WHY:`, `// WHY:`, `// RATIONALE:`, `// IMPORTANT:`) nodes connected by `defines`, `contains`, `imports`, `calls`, `inherits`, `implements`, `uses`, `rationale_for`, and `documents` edges.
+- **Honest Edge Confidence Tagging**:
+  - `EXTRACTED` (`1.0`): Deterministic AST import, definition, or inheritance.
+  - `INFERRED` (`0.60 - 0.90`): Cross-file call resolution or Markdown backtick symbol reference.
+  - `AMBIGUOUS` (`0.20`): Unimported multi-candidate symbol match flagged for review.
+- **Louvain Modularity Community Detection**: Groups tightly coupled symbols into numbered architectural subsystems with cohesion scores (`0.0 - 1.0`) and automatic hub-based labels.
+- **God Nodes & Surprising Connections**: Surfaces the highest-degree central abstractions and unexpected cross-community bridges in `.scp/GRAPH_REPORT.md`.
+- **Self-Improving Work-Memory Loop**: Recording memories with `outcome: 'useful' | 'dead_end' | 'corrected'` automatically promotes corroborated sources and warns future agents away from known dead ends.
 
 ---
 

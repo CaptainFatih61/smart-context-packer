@@ -1,51 +1,148 @@
 /**
- * Interactive Visual Dependency & Token Treemap Inspector for smart-context-packer
+ * Interactive Visual Dependency, Community & Knowledge Graph Inspector for smart-context-packer
  * Generates an offline, zero-dependency self-contained HTML report with
- * an interactive force-directed canvas graph and token breakdown.
+ * an interactive force-directed canvas graph, Louvain community coloring, God Nodes, and token breakdown.
  */
 
 import fs from 'node:fs';
 import path from 'node:path';
-import type { DependencyGraph, BlastRadiusResult } from './types.js';
+import type { DependencyGraph, BlastRadiusResult, KnowledgeGraphData } from './types.js';
 
 export interface VisualizerOptions {
   outputPath?: string;
   blastRadius?: BlastRadiusResult;
+  knowledgeGraph?: KnowledgeGraphData;
   title?: string;
+}
+
+const COMMUNITY_PALETTE = [
+  '#06b6d4',
+  '#6366f1',
+  '#10b981',
+  '#f59e0b',
+  '#ec4899',
+  '#8b5cf6',
+  '#14b8a6',
+  '#f97316',
+  '#3b82f6',
+  '#eab308',
+];
+
+function extractRawEntries(graph: DependencyGraph | Record<string, any>): Array<[string, any]> {
+  if (graph && 'nodes' in graph && graph.nodes instanceof Map) {
+    return Array.from(graph.nodes.entries());
+  }
+  return Object.entries(graph as Record<string, any>).filter(
+    ([key]) =>
+      ![
+        'targets',
+        'nodes',
+        'circularWarnings',
+        'rootCwd',
+        'missingDependencies',
+        'gitDiffPatch',
+        'blastRadius',
+        'memories',
+      ].includes(key)
+  );
 }
 
 /**
  * Generates a self-contained HTML visualizer file.
  */
 export function generateVisualizerHtml(
-  graph: DependencyGraph,
+  graph: DependencyGraph | Record<string, any>,
   options?: VisualizerOptions
 ): string {
-  const nodes = Object.entries(graph).map(([filePath, node]) => {
+  const rawEntries = extractRawEntries(graph);
+  const entryMap = new Map(rawEntries);
+  const kg = options?.knowledgeGraph;
+
+  // Map file paths to community IDs & God Node flags if KnowledgeGraphData is available
+  const fileCommunityMap = new Map<string, { id: number; label: string }>();
+  const fileGodSymbolsMap = new Map<string, string[]>();
+
+  if (kg) {
+    for (const n of kg.nodes) {
+      if (n.sourceFile && n.community !== undefined && !fileCommunityMap.has(n.sourceFile)) {
+        fileCommunityMap.set(n.sourceFile, {
+          id: n.community,
+          label: kg.communityLabels[n.community] || `Community ${n.community}`,
+        });
+      }
+    }
+    for (const g of kg.godNodes) {
+      if (!fileGodSymbolsMap.has(g.sourceFile)) {
+        fileGodSymbolsMap.set(g.sourceFile, []);
+      }
+      fileGodSymbolsMap.get(g.sourceFile)!.push(g.label);
+    }
+  }
+
+  const nodes = rawEntries.map(([filePath, node], idx) => {
+    const comm = fileCommunityMap.get(filePath) || {
+      id: idx % COMMUNITY_PALETTE.length,
+      label: path.dirname(filePath) === '.' ? 'Root' : path.dirname(filePath),
+    };
+    const godSyms = fileGodSymbolsMap.get(filePath) || [];
+    const importsList: string[] = node.imports || node.rawImports || [];
+
     return {
       id: filePath,
       path: filePath,
       type: node.depth === 0 ? 'target' : 'dependency',
-      depth: node.depth,
+      depth: node.depth ?? 0,
       tokens: node.stats?.estimatedTokens || 100,
       lines: node.stats?.lines || 10,
       isSkeleton: !!node.isSkeleton,
-      rawImports: node.rawImports || [],
-      symbols: node.exportedSymbols || []
+      rawImports: importsList,
+      symbols: node.exportedSymbols || [],
+      communityId: comm.id,
+      communityLabel: comm.label,
+      color: COMMUNITY_PALETTE[comm.id % COMMUNITY_PALETTE.length],
+      isGodHub: godSyms.length > 0,
+      godSymbols: godSyms,
     };
   });
 
-  const links: Array<{ source: string; target: string }> = [];
-  for (const [source, node] of Object.entries(graph)) {
-    for (const target of node.rawImports || []) {
-      if (target in graph) {
-        links.push({ source, target });
+  const links: Array<{ source: string; target: string; confidence: string }> = [];
+  for (const [source, node] of rawEntries) {
+    const importsList: string[] = node.imports || node.rawImports || [];
+    for (const target of importsList) {
+      if (entryMap.has(target)) {
+        links.push({ source, target, confidence: 'EXTRACTED' });
       }
     }
   }
 
+  // Add cross-file INFERRED/AMBIGUOUS links from KnowledgeGraphData if present
+  if (kg) {
+    const nodeById = new Map(kg.nodes.map((n) => [n.id, n]));
+    const seenPairs = new Set(links.map((l) => `${l.source}|${l.target}`));
+    for (const edge of kg.edges) {
+      if (edge.confidence === 'EXTRACTED') continue;
+      const u = nodeById.get(edge.source);
+      const v = nodeById.get(edge.target);
+      if (u && v && u.sourceFile !== v.sourceFile && entryMap.has(u.sourceFile) && entryMap.has(v.sourceFile)) {
+        const key = `${u.sourceFile}|${v.sourceFile}`;
+        if (!seenPairs.has(key)) {
+          seenPairs.add(key);
+          links.push({
+            source: u.sourceFile,
+            target: v.sourceFile,
+            confidence: edge.confidence,
+          });
+        }
+      }
+    }
+  }
+
+  const uniqueCommunities = Array.from(
+    new Map(nodes.map((n) => [n.communityId, { id: n.communityId, label: n.communityLabel, color: n.color }])).values()
+  );
+
   const blastData = options?.blastRadius || null;
-  const title = options?.title || 'Smart Context Packer — Visual Architecture Inspector';
+  const title = options?.title || 'Smart Context Packer — Visual Knowledge Graph Inspector';
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -187,6 +284,27 @@ export function generateVisualizerHtml(
       color: #c7d2fe;
       border: 1px solid rgba(99, 102, 241, 0.2);
     }
+    .legend-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .legend-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.75rem;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: rgba(17, 24, 39, 0.8);
+      border: 1px solid var(--border);
+      cursor: pointer;
+    }
+    .legend-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
     .controls-hint {
       position: absolute;
       bottom: 16px;
@@ -206,10 +324,11 @@ export function generateVisualizerHtml(
   <header>
     <div class="brand">
       <span>📦 Smart Context Packer</span>
-      <span class="badge">v2.1 Visualizer</span>
+      <span class="badge">v2.5 Graphify Visualizer</span>
     </div>
     <div class="stats">
       <div>Files: <strong id="stat-files">${nodes.length}</strong></div>
+      <div>Communities: <strong>${uniqueCommunities.length}</strong></div>
       <div>Total Tokens: <strong id="stat-tokens">${nodes.reduce((acc, n) => acc + n.tokens, 0).toLocaleString()}</strong></div>
       ${blastData ? `<div>Risk Level: <strong style="color: ${blastData.riskLevel === 'HIGH' ? 'var(--danger)' : blastData.riskLevel === 'MEDIUM' ? 'var(--warning)' : 'var(--success)'}">${blastData.riskLevel} (${blastData.riskScore.toFixed(1)})</strong></div>` : ''}
     </div>
@@ -217,16 +336,21 @@ export function generateVisualizerHtml(
   <main>
     <div id="canvas-container">
       <canvas id="graph-canvas"></canvas>
-      <div class="controls-hint">Drag nodes • Pan canvas • Scroll to zoom • Click node for details</div>
+      <div class="controls-hint">Drag nodes • Pan canvas • Scroll to zoom • Solid=EXTRACTED, Dashed=INFERRED • Gold ring=God Hub</div>
     </div>
     <div id="sidebar">
+      <div class="card">
+        <h3>Communities (Click to Filter)</h3>
+        <div class="legend-list" id="community-legend"></div>
+      </div>
+
       <div class="card" id="details-card">
         <h3>Selected Module Details</h3>
         <div class="node-title" id="selected-path">Click any node in graph</div>
         <div class="meta-grid">
           <div class="meta-item"><label>Tokens</label><value id="selected-tokens">-</value></div>
           <div class="meta-item"><label>Lines</label><value id="selected-lines">-</value></div>
-          <div class="meta-item"><label>Type</label><value id="selected-type">-</value></div>
+          <div class="meta-item"><label>Community</label><value id="selected-community">-</value></div>
           <div class="meta-item"><label>Skeleton</label><value id="selected-skeleton">-</value></div>
         </div>
         <div style="margin-top: 14px;">
@@ -252,8 +376,27 @@ export function generateVisualizerHtml(
   <script>
     const graphData = {
       nodes: ${JSON.stringify(nodes)},
-      links: ${JSON.stringify(links)}
+      links: ${JSON.stringify(links)},
+      communities: ${JSON.stringify(uniqueCommunities)}
     };
+
+    let activeCommunityFilter = null;
+    const legendContainer = document.getElementById('community-legend');
+    const allPill = document.createElement('div');
+    allPill.className = 'legend-pill';
+    allPill.innerHTML = '<span>All (' + graphData.nodes.length + ')</span>';
+    allPill.onclick = () => { activeCommunityFilter = null; };
+    legendContainer.appendChild(allPill);
+
+    graphData.communities.forEach(c => {
+      const pill = document.createElement('div');
+      pill.className = 'legend-pill';
+      pill.innerHTML = '<span class="legend-dot" style="background:' + c.color + '"></span><span>' + c.label + '</span>';
+      pill.onclick = () => {
+        activeCommunityFilter = activeCommunityFilter === c.id ? null : c.id;
+      };
+      legendContainer.appendChild(pill);
+    });
 
     const canvas = document.getElementById('graph-canvas');
     const ctx = canvas.getContext('2d');
@@ -290,7 +433,7 @@ export function generateVisualizerHtml(
       document.getElementById('selected-path').innerText = n.path;
       document.getElementById('selected-tokens').innerText = n.tokens.toLocaleString();
       document.getElementById('selected-lines').innerText = n.lines.toLocaleString();
-      document.getElementById('selected-type').innerText = n.type.toUpperCase();
+      document.getElementById('selected-community').innerText = n.communityLabel || n.type.toUpperCase();
       document.getElementById('selected-skeleton').innerText = n.isSkeleton ? 'YES' : 'NO';
 
       const symContainer = document.getElementById('selected-symbols');
@@ -302,9 +445,7 @@ export function generateVisualizerHtml(
     }
     if (selectedNode) renderDetails(selectedNode);
 
-    // Simple spring embedder force simulation
     function stepSimulation() {
-      // Repulsion
       for (let i = 0; i < N; i++) {
         for (let j = i + 1; j < N; j++) {
           const a = graphData.nodes[i];
@@ -322,7 +463,6 @@ export function generateVisualizerHtml(
         }
       }
 
-      // Link attraction
       graphData.links.forEach(link => {
         const a = graphData.nodes.find(n => n.id === link.source);
         const b = graphData.nodes.find(n => n.id === link.target);
@@ -340,7 +480,6 @@ export function generateVisualizerHtml(
         }
       });
 
-      // Gravity to center & damping
       graphData.nodes.forEach(n => {
         if (n !== draggedNode) {
           n.vx += (width / 2 - n.x) * 0.005;
@@ -366,26 +505,46 @@ export function generateVisualizerHtml(
         const a = graphData.nodes.find(n => n.id === link.source);
         const b = graphData.nodes.find(n => n.id === link.target);
         if (a && b) {
+          if (activeCommunityFilter !== null && a.communityId !== activeCommunityFilter && b.communityId !== activeCommunityFilter) {
+            return;
+          }
           ctx.beginPath();
+          if (link.confidence === 'INFERRED') {
+            ctx.setLineDash([5, 4]);
+          } else if (link.confidence === 'AMBIGUOUS') {
+            ctx.setLineDash([2, 3]);
+          } else {
+            ctx.setLineDash([]);
+          }
           ctx.moveTo(a.x, a.y);
           ctx.lineTo(b.x, b.y);
-          ctx.strokeStyle = 'rgba(99, 102, 241, 0.25)';
+          ctx.strokeStyle = link.confidence === 'AMBIGUOUS' ? 'rgba(245, 158, 11, 0.45)' : 'rgba(99, 102, 241, 0.3)';
           ctx.lineWidth = 1.5;
           ctx.stroke();
+          ctx.setLineDash([]);
         }
       });
 
       // Draw nodes
       graphData.nodes.forEach(n => {
+        const dimmed = activeCommunityFilter !== null && n.communityId !== activeCommunityFilter;
+        ctx.globalAlpha = dimmed ? 0.2 : 1.0;
+
         ctx.beginPath();
         ctx.arc(n.x, n.y, n.radius, 0, 2 * Math.PI);
         const isSelected = selectedNode && selectedNode.id === n.id;
-        ctx.fillStyle = n.type === 'target' ? '#06b6d4' : '#6366f1';
+        ctx.fillStyle = n.color || (n.type === 'target' ? '#06b6d4' : '#6366f1');
         ctx.fill();
 
-        ctx.strokeStyle = isSelected ? '#ffffff' : 'rgba(255, 255, 255, 0.2)';
-        ctx.lineWidth = isSelected ? 3 : 1;
-        ctx.stroke();
+        if (n.isGodHub) {
+          ctx.strokeStyle = '#f59e0b';
+          ctx.lineWidth = 3;
+          ctx.stroke();
+        } else {
+          ctx.strokeStyle = isSelected ? '#ffffff' : 'rgba(255, 255, 255, 0.2)';
+          ctx.lineWidth = isSelected ? 3 : 1;
+          ctx.stroke();
+        }
 
         // Label
         ctx.fillStyle = '#f3f4f6';
@@ -393,6 +552,7 @@ export function generateVisualizerHtml(
         ctx.textAlign = 'center';
         const label = n.path.split('/').pop();
         ctx.fillText(label, n.x, n.y + n.radius + 12);
+        ctx.globalAlpha = 1.0;
       });
 
       ctx.restore();
@@ -400,7 +560,6 @@ export function generateVisualizerHtml(
     }
     requestAnimationFrame(draw);
 
-    // Mouse interactions
     let isPanning = false;
     let startX = 0, startY = 0;
 
@@ -455,7 +614,7 @@ export function generateVisualizerHtml(
  * Writes visualizer report to file and returns absolute path.
  */
 export function writeVisualizerReport(
-  graph: DependencyGraph,
+  graph: DependencyGraph | Record<string, any>,
   options?: VisualizerOptions
 ): string {
   const html = generateVisualizerHtml(graph, options);

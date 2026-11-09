@@ -28,7 +28,7 @@ describe('Model Context Protocol (MCP) Server', () => {
     expect(res?.id).toBe(1);
     expect(res?.result).toHaveProperty('protocolVersion');
     expect((res?.result as any).serverInfo.name).toBe('smart-context-packer');
-    expect((res?.result as any).serverInfo.version).toBe('2.4.0');
+    expect((res?.result as any).serverInfo.version).toBe('2.5.0');
   });
 
   it('handles ping request', async () => {
@@ -53,7 +53,7 @@ describe('Model Context Protocol (MCP) Server', () => {
     expect(res?.id).toBe(3);
     const tools = (res?.result as any).tools;
     expect(Array.isArray(tools)).toBe(true);
-    expect(tools.length).toBe(15);
+    expect(tools.length).toBe(19);
 
     const names = tools.map((t: any) => t.name);
     expect(names).toContain('search_codebase_index');
@@ -71,6 +71,10 @@ describe('Model Context Protocol (MCP) Server', () => {
     expect(names).toContain('extract_symbol_definition');
     expect(names).toContain('get_impacted_tests');
     expect(names).toContain('audit_context_leak');
+    expect(names).toContain('build_knowledge_graph');
+    expect(names).toContain('query_knowledge_graph');
+    expect(names).toContain('trace_shortest_path');
+    expect(names).toContain('explain_entity');
   });
 
   it('calls inspect_dependency_graph tool', async () => {
@@ -545,6 +549,68 @@ describe('Model Context Protocol (MCP) Server', () => {
     });
     expect(resFile?.id).toBe(25);
     expect((resFile?.result as any).content[0].text).toContain('Context Safety & Token Density Audit');
+  });
+
+  it('calls Graphify Knowledge Graph MCP tools (build_knowledge_graph, query_knowledge_graph, trace_shortest_path, explain_entity)', async () => {
+    const resBuild = await server.handleMessage({
+      jsonrpc: '2.0',
+      id: 26,
+      method: 'tools/call',
+      params: {
+        name: 'build_knowledge_graph',
+        arguments: { cwd: sampleAppDir },
+      },
+    });
+    expect(resBuild?.id).toBe(26);
+    expect(resBuild?.error).toBeUndefined();
+    const buildText = (resBuild?.result as any).content[0].text;
+    expect(buildText).toContain('# Graph Report -');
+    expect(buildText).toContain('God Nodes');
+
+    const resExplain = await server.handleMessage({
+      jsonrpc: '2.0',
+      id: 27,
+      method: 'tools/call',
+      params: {
+        name: 'explain_entity',
+        arguments: { cwd: sampleAppDir, entity: 'AuthService' },
+      },
+    });
+    expect(resExplain?.id).toBe(27);
+    const explainText = (resExplain?.result as any).content[0].text;
+    expect(explainText).toContain('Node: AuthService');
+
+    const resPath = await server.handleMessage({
+      jsonrpc: '2.0',
+      id: 28,
+      method: 'tools/call',
+      params: {
+        name: 'trace_shortest_path',
+        arguments: { cwd: sampleAppDir, from: 'src/index.ts', to: 'AuthService' },
+      },
+    });
+    expect(resPath?.id).toBe(28);
+    const pathText = (resPath?.result as any).content[0].text;
+    expect(pathText).toContain('Shortest path');
+
+    const resQuery = await server.handleMessage({
+      jsonrpc: '2.0',
+      id: 29,
+      method: 'tools/call',
+      params: {
+        name: 'query_knowledge_graph',
+        arguments: { cwd: sampleAppDir, question: 'how does auth login work', mode: 'bfs', budget: 1500 },
+      },
+    });
+    expect(resQuery?.id).toBe(29);
+    const queryText = (resQuery?.result as any).content[0].text;
+    expect(queryText).toContain('Traversal: BFS');
+
+    // Clean up generated .scp in sampleAppDir
+    const scpDir = path.join(sampleAppDir, '.scp');
+    if (fs.existsSync(scpDir)) {
+      fs.rmSync(scpDir, { recursive: true, force: true });
+    }
   });
 
   it('returns error for unknown tool call', async () => {

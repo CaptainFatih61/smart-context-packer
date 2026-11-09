@@ -11,7 +11,7 @@
 [![CI](https://github.com/CaptainFatih61/smart-context-packer/actions/workflows/ci.yml/badge.svg)](https://github.com/CaptainFatih61/smart-context-packer/actions)
 [![NPM Version](https://img.shields.io/npm/v/smart-context-packer.svg?color=blue)](https://www.npmjs.com/package/smart-context-packer)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![MCP: 15 Tools](https://img.shields.io/badge/MCP-15%20Tools%20JSON--RPC-brightgreen.svg)](https://modelcontextprotocol.io/)
+[![MCP: 19 Tools](https://img.shields.io/badge/MCP-19%20Tools%20JSON--RPC-brightgreen.svg)](https://modelcontextprotocol.io/)
 
 </div>
 
@@ -23,6 +23,7 @@
 2. [Temel Tasarım İlkeleri (Core Philosophy)](#2-temel-tasarım-ilkeleri-core-philosophy)
 3. [Rakiplerle Karşılaştırma (OSS Benchmark Matrix)](#3-rakiplerle-karşılaştırma-oss-benchmark-matrix)
 4. [Sistem Mimarisi ve Modüller](#4-sistem-mimarisi-ve-modüller)
+   - [4.0 Graphify Çok-İlişkili Bilgi Grafiği & Louvain Kümeleme (`knowledge-graph.ts`) — v2.5.0](#40-graphify-çok-i̇lişkili-bilgi-grafiği--louvain-kümeleme-knowledge-graphts--v250)
    - [4.1 16 Dilli Ultra-Polyglot Bağımlılık Grafı Motoru (`analyzer.ts`)](#41-16-dilli-ultra-polyglot-bağımlılık-grafı-motoru-analyzerts)
    - [4.2 12 Manifest Dosyası & Halüsinasyon Önleyici Versiyon Sabitleme (`dependencies.ts`)](#42-12-manifest-dosyası--halüsinasyon-önleyici-versiyon-sabitleme-dependenciest)
    - [4.3 Akıllı Skeletonizer & Middle-Out Slicing (`filter.ts`)](#43-akıllı-skeletonizer--middle-out-slicing-filterts)
@@ -108,6 +109,13 @@ Modern yazılım geliştirmede Büyük Dil Modelleri (ChatGPT, Claude, Gemini, C
 ---
 
 ## 4. Sistem Mimarisi ve Modüller
+
+### 4.0 Graphify Çok-İlişkili Bilgi Grafiği & Louvain Kümeleme (`knowledge-graph.ts`) — v2.5.0
+`scp v2.5.0`, **Graphify** mimarisini sıfır Python bağımlılığıyla doğrudan TypeScript çekirdeğine taşır:
+* **Sembol, Kavram ve Gerekçe Çıkarımı:** Sınıflar, arayüzler, fonksiyonlar, metotlar, tipler, Markdown doküman başlıkları (`concept`) ve satır içi `# WHY:` / `// RATIONALE:` / `// IMPORTANT:` yorumları (`rationale`) düğüm olarak çıkarılır.
+* **Güven Skorlu İlişkisel Kenarlar:** `defines`, `contains`, `imports`, `calls`, `inherits`, `implements`, `uses`, `rationale_for` ve `documents` kenarları `EXTRACTED` (`1.0`), `INFERRED` (`0.60-0.90`) ve `AMBIGUOUS` (`0.20`) güven etiketleriyle puanlanır.
+* **Louvain Modularity Topluluk Tespiti:** Kod tabanını kohezyon skorlu (`0.0 - 1.0`) alt sistem kümelerine ayırır, **God Nodes** (merkezi soyutlamalar) ve **Surprising Connections** (alt sistemler arası şaşırtıcı köprüler) analizini `.scp/GRAPH_REPORT.md` dosyasına yazar.
+* **Sorgulama & Gezinti (CLI & 4 Yeni MCP Aracı):** `build_knowledge_graph` (`--graphify`), `explain_entity` (`--explain`), `trace_shortest_path` (`--path A:B`) ve `query_knowledge_graph` (`--graph-query "..." [--dfs]`).
 
 ### 4.1 16 Dilli Ultra-Polyglot Bağımlılık Grafı Motoru (`analyzer.ts`)
 Projenin omurgası olan `analyzer.ts`, verilen hedef dosyalardan başlayarak yönlü bir bağımlılık grafı (DAG) inşa eder. Her dosyanın import ve require ifadelerini çözer ve yerel diskteki karşılıklarını bulur.

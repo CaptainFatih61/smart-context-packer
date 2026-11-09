@@ -61,6 +61,14 @@ Call \`search_codebase_intent\` to find relevant seed files from plain English i
 - **Tool**: \`search_codebase_intent\`
 - **Arguments**: \`{ "query": "auth token refresh verification" }\`
 
+### 6. Graphify Knowledge Graph & Architectural Reasoning
+When exploring unfamiliar architecture, tracing cross-module relations, or answering "why" questions:
+- **Build/Refresh Graph**: Call \`build_knowledge_graph\` to generate \`.scp/graph.json\` and \`.scp/GRAPH_REPORT.md\` (Louvain communities, God Nodes, Surprising Connections, and \`# WHY:\` rationales).
+- **Subgraph Query**: Call \`query_knowledge_graph\` (\`{ "question": "how does X interact with Y", "mode": "bfs", "budget": 2000 }\`).
+- **Shortest Path**: Call \`trace_shortest_path\` (\`{ "from": "SymbolA", "to": "SymbolB" }\`) to see exact \`EXTRACTED\`, \`INFERRED\`, or \`AMBIGUOUS\` relational hops.
+- **Deep Entity Card**: Call \`explain_entity\` (\`{ "entity": "ClassName" }\`) for community membership, callers, callees, and inline rationale notes.
+- **Self-Improving Memory**: When saving lessons with \`save_project_memory\`, pass \`outcome: "useful" | "dead_end" | "corrected"\` so future queries prioritize corroborated patterns and avoid dead-end hypotheses.
+
 ## 🚫 Anti-Patterns to Avoid
 - DO NOT dump entire directories into context when only specific entrypoints are needed.
 - DO NOT invent or assume functions/types without checking their definitions via \`pack_context\`.
