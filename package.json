@@ -31,7 +31,11 @@
     "ruby",
     "svelte",
     "vue",
-    "lua"
+    "lua",
+    "html",
+    "knowledge-graph",
+    "graphify",
+    "louvain"
   ],
   "author": "Antigravity Team",
   "license": "MIT",

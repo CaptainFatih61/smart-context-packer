@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import ignore, { type Ignore } from 'ignore';
+import { extractScriptBlocks } from './cache.js';
 
 export const DEFAULT_IGNORED_PATTERNS = [
   'node_modules/**',
@@ -159,19 +160,21 @@ export function extractSkeleton(content: string, ext: string): string {
 
   const normalizedExt = ext.toLowerCase();
 
-  // Vue & Svelte SFC handling: keep scripts, collapse template & style
-  if (normalizedExt === '.vue' || normalizedExt === '.svelte') {
+  // HTML, Vue & Svelte SFC handling: keep scripts skeletonized, collapse template & style
+  if (['.vue', '.svelte', '.html', '.htm'].includes(normalizedExt)) {
     let stripped = content;
-    stripped = stripped.replace(
-      /<template[\s\S]*?<\/template>/gi,
-      '<template>\n  <!-- [Template omitted for token efficiency in skeleton mode] -->\n</template>'
-    );
+    if (normalizedExt === '.vue' || normalizedExt === '.svelte') {
+      stripped = stripped.replace(
+        /<template[\s\S]*?<\/template>/gi,
+        '<template>\n  <!-- [Template omitted for token efficiency in skeleton mode] -->\n</template>'
+      );
+    }
     stripped = stripped.replace(
       /<style[\s\S]*?<\/style>/gi,
       '/* [Styles omitted in skeleton mode] */'
     );
     // Skeletonize the script contents
-    stripped = stripped.replace(/(<script[^>]*>)([\s\S]*?)(<\/script>)/gi, (_, open, code, close) => {
+    stripped = stripped.replace(/(<script\b[^>]*>)([\s\S]*?)(<\/script>)/gi, (_, open, code, close) => {
       return `${open}\n${extractCodeSkeleton(code)}\n${close}`;
     });
     return stripped;
@@ -547,8 +550,11 @@ export function extractNamedImportsMap(code: string, ext: string): Map<string, S
     return map;
   }
 
-  // TS / JS / JSX / TSX / Vue / Svelte
-  const cleanCode = code
+  // HTML / TS / JS / JSX / TSX / Vue / Svelte
+  const scriptContent = ['.html', '.htm', '.vue', '.svelte'].includes(normalizedExt)
+    ? extractScriptBlocks(code)
+    : code;
+  const cleanCode = scriptContent
     .replace(/\/\*[\s\S]*?\*\//g, '')
     .replace(/\/\/.*$/gm, '');
 

@@ -613,6 +613,78 @@ describe('Model Context Protocol (MCP) Server', () => {
     }
   });
 
+  it('supports single-file and multi-file HTML apps across search_codebase_index, generate_repo_map, and knowledge graph tools', async () => {
+    const htmlDir = fs.mkdtempSync(path.join(os.tmpdir(), 'scp-html-mcp-'));
+    try {
+      fs.writeFileSync(
+        path.join(htmlDir, 'index.html'),
+        [
+          '<!DOCTYPE html>',
+          '<html lang="tr">',
+          '<head>',
+          '  <style>.card { background: #161920; color: #0F1115; }</style>',
+          '</head>',
+          '<body>',
+          '  <script>',
+          '    // WHY: Scoring engine runs synchronously client-side without external API calls.',
+          '    function buildFullAnalysis(answers) {',
+          '      return { total: Object.keys(answers).length };',
+          '    }',
+          '    function renderReport(data) {',
+          '      return buildFullAnalysis(data);',
+          '    }',
+          '  </script>',
+          '</body>',
+          '</html>',
+        ].join('\n'),
+        'utf-8'
+      );
+
+      const resSearch = await server.handleMessage({
+        jsonrpc: '2.0',
+        id: 30,
+        method: 'tools/call',
+        params: {
+          name: 'search_codebase_index',
+          arguments: { cwd: htmlDir, query: 'buildfullanalysis' },
+        },
+      });
+      const searchText = (resSearch?.result as any).content[0].text;
+      expect(searchText).toContain('Matched: 1 files');
+      expect(searchText).toContain('index.html');
+      expect(searchText).toContain('buildFullAnalysis');
+
+      const resRepoMap = await server.handleMessage({
+        jsonrpc: '2.0',
+        id: 31,
+        method: 'tools/call',
+        params: {
+          name: 'generate_repo_map',
+          arguments: { cwd: htmlDir },
+        },
+      });
+      const repoMapText = (resRepoMap?.result as any).content[0].text;
+      expect(repoMapText).toContain('index.html');
+      expect(repoMapText).toContain('buildFullAnalysis');
+      expect(repoMapText).not.toContain('No code files detected');
+
+      const resGraph = await server.handleMessage({
+        jsonrpc: '2.0',
+        id: 32,
+        method: 'tools/call',
+        params: {
+          name: 'build_knowledge_graph',
+          arguments: { cwd: htmlDir },
+        },
+      });
+      const graphText = (resGraph?.result as any).content[0].text;
+      expect(graphText).toContain('index.html');
+      expect(graphText).toContain('buildFullAnalysis');
+    } finally {
+      fs.rmSync(htmlDir, { recursive: true, force: true });
+    }
+  });
+
   it('returns error for unknown tool call', async () => {
     const res = await server.handleMessage({
       jsonrpc: '2.0',

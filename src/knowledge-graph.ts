@@ -70,11 +70,72 @@ const BUILTIN_NOISE_LABELS = new Set([
   'valueOf',
   'init',
   'main',
+  'add',
+  'get',
+  'set',
+  'has',
+  'delete',
+  'clear',
+  'push',
+  'pop',
+  'shift',
+  'unshift',
+  'slice',
+  'splice',
+  'split',
+  'join',
+  'map',
+  'filter',
+  'reduce',
+  'forEach',
+  'find',
+  'findIndex',
+  'some',
+  'every',
+  'includes',
+  'indexOf',
+  'startsWith',
+  'endsWith',
+  'replace',
+  'replaceAll',
+  'match',
+  'matchAll',
+  'exec',
+  'test',
+  'trim',
+  'toLowerCase',
+  'toUpperCase',
+  'charAt',
+  'from',
+  'keys',
+  'values',
+  'entries',
+  'assign',
+  'freeze',
+  'stringify',
+  'parse',
+  'resolve',
+  'reject',
+  'then',
+  'catch',
+  'finally',
+  'log',
+  'warn',
+  'error',
+  'info',
+  'debug',
+  'assert',
+  'expect',
+  'describe',
+  'it',
+  'beforeEach',
+  'afterEach',
 ]);
 
 export interface BuildKnowledgeGraphOptions {
   targets?: string[];
   includeDocs?: boolean;
+  includeTests?: boolean;
   maxFiles?: number;
   persist?: boolean;
   outputDir?: string;
@@ -171,6 +232,173 @@ interface ExtractedSymbol {
   bodyText: string;
 }
 
+function collectHtmlScriptLineIndices(lines: string[]): Set<number> {
+  const activeLines = new Set<number>();
+  let inScript = false;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
+    if (!inScript) {
+      const openMatch = line.match(/<script\b([^>]*)>/i);
+      if (openMatch) {
+        const afterOpenIdx = (openMatch.index ?? 0) + openMatch[0].length;
+        const closeIdx = line.toLowerCase().indexOf('</script>', afterOpenIdx);
+        if (closeIdx !== -1) {
+          if (line.slice(afterOpenIdx, closeIdx).trim()) {
+            activeLines.add(i);
+          }
+        } else {
+          if (line.slice(afterOpenIdx).trim()) {
+            activeLines.add(i);
+          }
+          inScript = true;
+        }
+      }
+      continue;
+    }
+
+    const closeIdx = line.toLowerCase().indexOf('</script>');
+    if (closeIdx !== -1) {
+      if (line.slice(0, closeIdx).trim()) {
+        activeLines.add(i);
+      }
+      inScript = false;
+    } else {
+      activeLines.add(i);
+    }
+  }
+
+  return activeLines;
+}
+
+const JS_TEMPLATE_EXTS = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.html', '.htm', '.vue', '.svelte']);
+
+function collectTemplateLiteralInteriorLines(lines: string[], activeScriptLines: Set<number> | null): Set<number> {
+  const interiorLines = new Set<number>();
+  const braceStack: number[] = [];
+  let inBlockComment = false;
+
+  for (let i = 0; i < lines.length; i++) {
+    if (activeScriptLines && !activeScriptLines.has(i)) continue;
+    const line = lines[i]!;
+
+    const startsInTemplateText = braceStack.length > 0 && braceStack[braceStack.length - 1] === 0;
+    if (startsInTemplateText) {
+      interiorLines.add(i);
+    }
+
+    let quote: "'" | '"' | null = null;
+    let prevSigChar = '';
+
+    for (let j = 0; j < line.length; j++) {
+      const ch = line[j]!;
+      const next = line[j + 1];
+      const top = braceStack[braceStack.length - 1];
+      const inTemplateText = braceStack.length > 0 && top === 0;
+
+      if (inBlockComment) {
+        if (ch === '*' && next === '/') {
+          inBlockComment = false;
+          j++;
+        }
+        continue;
+      }
+
+      if (inTemplateText) {
+        if (ch === '\\') {
+          j++;
+          continue;
+        }
+        if (ch === '`') {
+          braceStack.pop();
+          prevSigChar = '`';
+          continue;
+        }
+        if (ch === '$' && next === '{') {
+          braceStack[braceStack.length - 1] = 1;
+          j++;
+          prevSigChar = '{';
+          continue;
+        }
+        continue;
+      }
+
+      if (quote) {
+        if (ch === '\\') {
+          j++;
+          continue;
+        }
+        if (ch === quote) {
+          quote = null;
+          prevSigChar = ch;
+        }
+        continue;
+      }
+
+      if (ch === '/' && next === '/') {
+        break;
+      }
+      if (ch === '/' && next === '*') {
+        inBlockComment = true;
+        j++;
+        continue;
+      }
+      if (ch === '/' && (!prevSigChar || '=(,[!&|?:;{}'.includes(prevSigChar))) {
+        let inClass = false;
+        let k = j + 1;
+        for (; k < line.length; k++) {
+          const rc = line[k]!;
+          if (rc === '\\') {
+            k++;
+            continue;
+          }
+          if (rc === '[') {
+            inClass = true;
+          } else if (rc === ']') {
+            inClass = false;
+          } else if (rc === '/' && !inClass) {
+            break;
+          }
+        }
+        if (k < line.length) {
+          j = k;
+          prevSigChar = '/';
+          continue;
+        }
+      }
+
+      if (ch === "'" || ch === '"') {
+        quote = ch;
+        continue;
+      }
+
+      if (ch === '`') {
+        braceStack.push(0);
+        continue;
+      }
+
+      if (braceStack.length > 0 && top !== undefined && top > 0) {
+        if (ch === '{') {
+          braceStack[braceStack.length - 1] = top + 1;
+          prevSigChar = '{';
+          continue;
+        }
+        if (ch === '}') {
+          braceStack[braceStack.length - 1] = top - 1;
+          prevSigChar = '}';
+          continue;
+        }
+      }
+
+      if (!/\s/.test(ch)) {
+        prevSigChar = ch;
+      }
+    }
+  }
+
+  return interiorLines;
+}
+
 /**
  * Extracts structured symbols (classes, interfaces, functions, methods, types) and rationale comments from a source file.
  */
@@ -182,13 +410,20 @@ export function extractFileSymbolsAndRationales(
   rationales: Array<{ text: string; line: number }>;
 } {
   const ext = path.extname(filePath).toLowerCase();
+  const isHtml = ext === '.html' || ext === '.htm';
   const lines = content.split(/\r?\n/);
+  const activeScriptLines = isHtml ? collectHtmlScriptLineIndices(lines) : null;
+  const templateInteriorLines = JS_TEMPLATE_EXTS.has(ext)
+    ? collectTemplateLiteralInteriorLines(lines, activeScriptLines)
+    : null;
   const symbols: ExtractedSymbol[] = [];
   const rationales: Array<{ text: string; line: number }> = [];
 
   // 1. Extract Rationale Comments (# WHY:, // WHY:, // NOTE:, # NOTE:, // IMPORTANT:, @rationale)
   const rationaleRegex = /(?:\/\/|#|\*)\s*(?:WHY|NOTE|IMPORTANT|RATIONALE|ADR|RFC)\s*:\s*(.+)$/i;
   for (let i = 0; i < lines.length; i++) {
+    if (activeScriptLines && !activeScriptLines.has(i)) continue;
+    if (templateInteriorLines?.has(i)) continue;
     const match = rationaleRegex.exec(lines[i]!);
     if (match && match[1]) {
       const text = match[1].trim();
@@ -224,6 +459,8 @@ export function extractFileSymbolsAndRationales(
   let currentClass: { name: string; endLine: number } | null = null;
 
   for (let i = 0; i < lines.length; i++) {
+    if (activeScriptLines && !activeScriptLines.has(i)) continue;
+    if (templateInteriorLines?.has(i)) continue;
     const rawLine = lines[i]!;
     const trimmed = rawLine.trim();
     if (!trimmed || trimmed.startsWith('//') || trimmed.startsWith('#') || trimmed.startsWith('/*') || trimmed.startsWith('*')) {
@@ -762,9 +999,24 @@ export async function buildKnowledgeGraph(
       }
     }
   } else {
+    const baseIgnore = ['**/node_modules/**', '**/dist/**', '**/.git/**', '**/coverage/**', '**/.scp/**', '**/build/**'];
+    const workspaceIgnore =
+      options.includeTests === true
+        ? baseIgnore
+        : [
+            ...baseIgnore,
+            'tests/**',
+            'test/**',
+            '__tests__/**',
+            '**/fixtures/**',
+            '**/*.test.*',
+            '**/*.spec.*',
+            '**/*_test.*',
+            '**/test_*.*',
+          ];
     candidateFiles = await fg(patterns, {
       cwd: rootCwd,
-      ignore: ['**/node_modules/**', '**/dist/**', '**/.git/**', '**/coverage/**', '**/.scp/**', '**/build/**'],
+      ignore: workspaceIgnore,
     });
   }
 

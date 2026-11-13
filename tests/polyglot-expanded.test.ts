@@ -220,4 +220,74 @@ dependencies:
 
     expect(active.map((a) => a.name)).toEqual(['dio', 'guzzlehttp/guzzle', 'Newtonsoft.Json']);
   });
+
+  it('extracts embedded script symbols, skeletonizes markup/styles, and resolves local HTML imports', async () => {
+    const htmlCode = [
+      '<!DOCTYPE html>',
+      '<html>',
+      '<head>',
+      '  <style>.card { color: #0F1115; }</style>',
+      '  <script src="https://cdn.example.com/lib.js"></script>',
+      '</head>',
+      '<body>',
+      '  <script type="module">',
+      "    import { calcScore } from './scoring.js';",
+      '    export function renderReport(data) {',
+      '      const secretVal = data.score * 2;',
+      '      return secretVal;',
+      '    }',
+      '    function evaluateConsistency(answers) {',
+      '      return Object.keys(answers).length;',
+      '    }',
+      '    const buildMatrix = (items) => items.length;',
+      '  </script>',
+      '</body>',
+      '</html>',
+    ].join('\n');
+
+    expect(extractExportedSymbols(htmlCode, '.html')).toEqual([
+      'renderReport',
+      'evaluateConsistency',
+      'buildMatrix',
+    ]);
+    // Also works when repo-map passes full file path instead of bare extension
+    expect(extractExportedSymbols(htmlCode, 'index.html')).toEqual([
+      'renderReport',
+      'evaluateConsistency',
+      'buildMatrix',
+    ]);
+
+    const skeleton = extractSkeleton(htmlCode, '.html');
+    expect(skeleton).toContain('/* [Styles omitted in skeleton mode] */');
+    expect(skeleton).toContain('/* [Implementation omitted for token efficiency] */');
+    expect(skeleton).not.toContain('const secretVal = data.score * 2;');
+
+    const htmlPath = path.join(tmpDir, 'index.html');
+    const scoringPath = path.join(tmpDir, 'scoring.js');
+    const appPath = path.join(tmpDir, 'app.js');
+    fs.writeFileSync(scoringPath, 'export function calcScore(x) { return x + 1; }\n', 'utf-8');
+    fs.writeFileSync(appPath, 'console.log("boot");\n', 'utf-8');
+    fs.writeFileSync(
+      htmlPath,
+      [
+        '<!DOCTYPE html><html><head>',
+        '<script src="https://cdn.example.com/lib.js"></script>',
+        '<script src="./app.js"></script>',
+        '</head><body>',
+        '<script type="module">',
+        "import { calcScore } from './scoring.js';",
+        'function bootDashboard() { return calcScore(5); }',
+        '</script></body></html>',
+      ].join('\n'),
+      'utf-8'
+    );
+
+    const analyzer = new DependencyAnalyzer({ cwd: tmpDir, depth: 2, noCache: true });
+    const graph = await analyzer.analyze(['index.html']);
+    expect(graph.nodes.has('index.html')).toBe(true);
+    expect(graph.nodes.has('scoring.js')).toBe(true);
+    expect(graph.nodes.has('app.js')).toBe(true);
+    expect(graph.nodes.get('index.html')?.imports).toContain('scoring.js');
+    expect(graph.nodes.get('index.html')?.imports).toContain('app.js');
+  });
 });

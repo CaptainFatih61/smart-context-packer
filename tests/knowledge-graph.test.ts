@@ -199,4 +199,57 @@ The \`BillingEngine\` coordinates with \`SessionManager\` to guarantee zero unau
     expect(lessons.deadEnds.length).toBe(1);
     expect(lessons.corrections.length).toBe(1);
   });
+
+  it('ignores template-literal interior symbols, built-in method noise labels, and tests/ by default', async () => {
+    fs.mkdirSync(path.join(tmpDir, 'src'), { recursive: true });
+    fs.mkdirSync(path.join(tmpDir, 'tests'), { recursive: true });
+
+    const visualizerCode = `
+export function renderWidget() {
+  const html = \`<!DOCTYPE html>
+  <script>
+    // WHY: Fake rationale inside template string must not be extracted as module symbol.
+    function fakeTemplateDraw() {}
+    class FakeTemplateCanvas {}
+  </script>\`;
+  return html;
+}
+export function realHelper() {
+  const set = new Set<string>();
+  set.add('ok');
+  const map = new Map<string, number>();
+  return map.get('ok');
+}
+`;
+    const extracted = extractFileSymbolsAndRationales(visualizerCode, 'src/widget.ts');
+    const symNames = extracted.symbols.map((s) => s.name);
+    expect(symNames).toContain('renderWidget');
+    expect(symNames).toContain('realHelper');
+    expect(symNames).not.toContain('fakeTemplateDraw');
+    expect(symNames).not.toContain('FakeTemplateCanvas');
+    expect(extracted.rationales).toHaveLength(0);
+
+    fs.writeFileSync(path.join(tmpDir, 'src', 'widget.ts'), visualizerCode, 'utf-8');
+    fs.writeFileSync(
+      path.join(tmpDir, 'tests', 'widget.test.ts'),
+      `export function add(x: number) { return x + 1; }\nclass TestHarnessDummy {}`,
+      'utf-8'
+    );
+
+    // Default workspace scan excludes tests/** and built-in method noise labels
+    const kgDefault = await buildKnowledgeGraph(tmpDir, { persist: false });
+    const defaultFiles = kgDefault.nodes.filter((n) => n.kind === 'file').map((n) => n.sourceFile);
+    expect(defaultFiles).toContain('src/widget.ts');
+    expect(defaultFiles).not.toContain('tests/widget.test.ts');
+    expect(kgDefault.edges.some((e) => e.target.includes('widget.test.ts'))).toBe(false);
+
+    // Explicit includeTests: true includes tests/**, while BUILTIN_NOISE_LABELS prevents false set.add -> add edge
+    const kgWithTests = await buildKnowledgeGraph(tmpDir, { persist: false, includeTests: true });
+    const allFiles = kgWithTests.nodes.filter((n) => n.kind === 'file').map((n) => n.sourceFile);
+    expect(allFiles).toContain('tests/widget.test.ts');
+    const falseAddEdge = kgWithTests.edges.some(
+      (e) => e.source.includes('realHelper') && e.relation === 'calls' && e.target.includes(':add:')
+    );
+    expect(falseAddEdge).toBe(false);
+  });
 });

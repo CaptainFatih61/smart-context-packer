@@ -452,6 +452,7 @@ function detectLanguage(filePath: string): string {
     case '.yml':
       return 'yaml';
     case '.html':
+    case '.htm':
       return 'html';
     case '.css':
       return 'css';

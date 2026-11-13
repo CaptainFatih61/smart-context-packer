@@ -1322,7 +1322,11 @@ export class McpServer {
                 const content = fs.readFileSync(fullPath, 'utf-8');
                 const ext = path.extname(file);
                 const symbols = AstCache.extractExportedSymbols(content, ext);
-                searcher.addDocument({ path: file, symbols, content: content.slice(0, 1000) });
+                searcher.addDocument({
+                  path: file,
+                  symbols,
+                  content: AstCache.extractIndexableContent(content, ext),
+                });
               } catch {
                 // ignore
               }

@@ -17,7 +17,7 @@ import {
 } from './filter.js';
 import { calculateFileStats } from './tokens.js';
 import { locatePrismaSchema, extractRelevantPrismaSchema } from './prisma.js';
-import { AstCache, extractExportedSymbols } from './cache.js';
+import { AstCache, extractExportedSymbols, extractScriptBlocks } from './cache.js';
 
 export const SUPPORTED_EXTENSIONS = [
   '.ts',
@@ -26,6 +26,8 @@ export const SUPPORTED_EXTENSIONS = [
   '.jsx',
   '.vue',
   '.svelte',
+  '.html',
+  '.htm',
   '.mjs',
   '.cjs',
   '.json',
@@ -52,7 +54,7 @@ export const SUPPORTED_EXTENSIONS = [
 const EXTENSIONS = SUPPORTED_EXTENSIONS;
 
 export const POLYGLOT_GLOB_PATTERN =
-  '**/*.{ts,tsx,js,jsx,mjs,cjs,vue,svelte,lua,py,go,rs,cs,java,kt,kts,c,cpp,cc,cxx,h,hpp,php,dart,swift,rb,prisma}';
+  '**/*.{ts,tsx,js,jsx,mjs,cjs,vue,svelte,html,htm,lua,py,go,rs,cs,java,kt,kts,c,cpp,cc,cxx,h,hpp,php,dart,swift,rb,prisma}';
 
 export class DependencyAnalyzer {
   private cwd: string;
@@ -341,6 +343,7 @@ export class DependencyAnalyzer {
         'index.js',
         'src/index.ts',
         'src/main.ts',
+        'index.html',
       ];
       for (const candidate of candidates) {
         const candidatePath = path.join(fullPath, candidate);
@@ -434,12 +437,16 @@ export class DependencyAnalyzer {
       return Array.from(specifiers);
     }
 
-    // 13. Vue and Svelte Single File Components
+    // 13. HTML / Vue / Svelte embedded <script> blocks and local <script src="..."> imports
     let codeToParse = content;
-    if (normalizedExt === '.vue') {
-      codeToParse = this.extractVueScripts(content);
-    } else if (normalizedExt === '.svelte') {
-      codeToParse = this.extractSvelteScripts(content);
+    if (normalizedExt === '.html' || normalizedExt === '.htm') {
+      this.extractLocalHtmlScriptSources(content).forEach((src) => specifiers.add(src));
+      codeToParse = extractScriptBlocks(content);
+      if (!codeToParse.trim()) {
+        return Array.from(specifiers);
+      }
+    } else if (normalizedExt === '.vue' || normalizedExt === '.svelte') {
+      codeToParse = extractScriptBlocks(content);
     }
 
     // 14. TypeScript / JavaScript / JSX
@@ -490,29 +497,23 @@ export class DependencyAnalyzer {
   }
 
   /**
-   * Extracts <script> and <script setup> tags from a Vue SFC.
+   * Extracts local relative <script src="..."> references from HTML files, ignoring remote URLs.
    */
-  private extractVueScripts(vueContent: string): string {
-    const scriptRegex = /<script\b[^>]*>([\s\S]*?)<\/script>/gi;
-    let scripts = '';
+  private extractLocalHtmlScriptSources(htmlContent: string): string[] {
+    const results = new Set<string>();
+    const srcRegex = /<script\b[^>]*\bsrc\s*=\s*['"]([^'"]+)['"][^>]*>/gi;
     let match: RegExpExecArray | null;
-    while ((match = scriptRegex.exec(vueContent)) !== null) {
-      if (match[1]) scripts += match[1] + '\n';
+    while ((match = srcRegex.exec(htmlContent)) !== null) {
+      const rawSrc = match[1]?.trim();
+      if (!rawSrc || /^(?:https?:|data:|blob:|mailto:|#|\/\/)/i.test(rawSrc)) {
+        continue;
+      }
+      const cleanSrc = rawSrc.replace(/[?#].*$/, '');
+      if (cleanSrc) {
+        results.add(cleanSrc.startsWith('.') || cleanSrc.startsWith('/') ? cleanSrc : `./${cleanSrc}`);
+      }
     }
-    return scripts;
-  }
-
-  /**
-   * Extracts <script> tags from a Svelte SFC.
-   */
-  private extractSvelteScripts(svelteContent: string): string {
-    const scriptRegex = /<script\b[^>]*>([\s\S]*?)<\/script>/gi;
-    let scripts = '';
-    let match: RegExpExecArray | null;
-    while ((match = scriptRegex.exec(svelteContent)) !== null) {
-      if (match[1]) scripts += match[1] + '\n';
-    }
-    return scripts;
+    return Array.from(results);
   }
 
   /**

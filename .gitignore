@@ -10,6 +10,10 @@ coverage/
 .scp/cache.json
 .scp/tasks.json
 .scp/visualizer.html
+.scp/graph.json
+.scp/GRAPH_REPORT.md
 **/.scp/cache.json
 **/.scp/tasks.json
 **/.scp/visualizer.html
+**/.scp/graph.json
+**/.scp/GRAPH_REPORT.md

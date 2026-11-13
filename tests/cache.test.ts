@@ -123,4 +123,27 @@ class PythonModel:
     expect(fs.existsSync(cacheFile)).toBe(false);
     expect(cache.get(testFile)).toBeNull();
   });
+
+  it('strips bulky <style> blocks and retains <script> content in extractIndexableContent for HTML/SFC files', () => {
+    const bulkyCss = '.card { color: #0F1115; } '.repeat(80); // > 1,800 chars of CSS
+    const html = `<!DOCTYPE html>
+<html>
+<head>
+  <title>Psychometric Profile</title>
+  <style>${bulkyCss}</style>
+</head>
+<body>
+  <script>
+    function computeHollandMatrix(scores) {
+      return scores.sort();
+    }
+  </script>
+</body>
+</html>`;
+
+    const indexed = AstCache.extractIndexableContent(html, '.html');
+    expect(indexed).toContain('Psychometric Profile');
+    expect(indexed).toContain('computeHollandMatrix');
+    expect(indexed).not.toContain('.card { color: #0F1115; }');
+  });
 });

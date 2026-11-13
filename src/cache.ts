@@ -4,6 +4,84 @@ import crypto from 'node:crypto';
 import type { CacheEntry, CacheStore, FileStats } from './types.js';
 
 const CACHE_VERSION = '2.0';
+const SCRIPT_BLOCK_REGEX = /<script\b([^>]*)>([\s\S]*?)<\/script>/gi;
+const JS_CONTROL_KEYWORDS = new Set(['if', 'for', 'while', 'switch', 'catch', 'return', 'function']);
+
+/**
+ * Extracts concatenated inline <script> bodies from HTML, Vue, and Svelte files.
+ */
+export function extractScriptBlocks(content: string): string {
+  if (!content) return '';
+  SCRIPT_BLOCK_REGEX.lastIndex = 0;
+  let scripts = '';
+  let match: RegExpExecArray | null;
+  while ((match = SCRIPT_BLOCK_REGEX.exec(content)) !== null) {
+    const attrs = match[1] || '';
+    const body = match[2] || '';
+    if (body.trim() && !(/\bsrc\s*=/i.test(attrs) && !body.trim())) {
+      scripts += body + '\n';
+    }
+  }
+  return scripts;
+}
+
+function extractJsSymbols(code: string, includeUnexported: boolean): string[] {
+  const symbols = new Set<string>();
+  const lines = code.split(/\r?\n/);
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('//') || trimmed.startsWith('/*') || trimmed.startsWith('*')) {
+      continue;
+    }
+
+    if (trimmed.startsWith('export ')) {
+      // export [default] (function|class|interface|type|enum|const|let|var) <Name>
+      const exportMatch = trimmed.match(
+        /^export\s+(?:default\s+)?(?:async\s+)?(?:function\*?|class|interface|type|enum|const|let|var)\s+([a-zA-Z0-9_$]+)/
+      );
+      if (exportMatch?.[1]) {
+        symbols.add(exportMatch[1]);
+      }
+      continue;
+    }
+
+    if (!includeUnexported) continue;
+
+    const fnMatch =
+      trimmed.match(/^(?:async\s+)?function\*?\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*\(/) ||
+      trimmed.match(/^class\s+([A-Za-z_$][A-Za-z0-9_$]*)\b/) ||
+      trimmed.match(
+        /^(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*(?:async\s*)?(?:\([^)]*\)|[A-Za-z_$][A-Za-z0-9_$]*)\s*=>/
+      );
+    if (fnMatch?.[1] && !JS_CONTROL_KEYWORDS.has(fnMatch[1])) {
+      symbols.add(fnMatch[1]);
+    }
+  }
+
+  return Array.from(symbols);
+}
+
+function normalizeExt(extOrPath: string): string {
+  const lower = extOrPath.toLowerCase();
+  return lower.startsWith('.') ? lower : path.extname(lower) || (lower ? `.${lower}` : '');
+}
+
+/**
+ * Extracts token-compact, search-relevant content for BM25 indexing.
+ * For HTML/Vue/Svelte files, strips bulky <style> blocks and combines leading markup with embedded <script> bodies.
+ */
+export function extractIndexableContent(content: string, ext: string, maxChars = 1500): string {
+  if (!content) return '';
+  const normalizedExt = normalizeExt(ext);
+  if (['.html', '.htm', '.vue', '.svelte'].includes(normalizedExt)) {
+    const withoutStyles = content.replace(/<style\b[\s\S]*?<\/style>/gi, ' ');
+    const markupHead = withoutStyles.replace(/<script\b[\s\S]*?<\/script>/gi, ' ').trim().slice(0, 600);
+    const scriptBody = extractScriptBlocks(content).trim().slice(0, maxChars);
+    return `${markupHead}\n${scriptBody}`.trim();
+  }
+  return content.slice(0, maxChars);
+}
 
 /**
  * Computes a SHA-256 cryptographic digest for file content.
@@ -17,7 +95,7 @@ export function computeSha256(content: string): string {
  */
 export function extractExportedSymbols(content: string, ext: string): string[] {
   if (!content) return [];
-  const normalizedExt = ext.toLowerCase();
+  const normalizedExt = normalizeExt(ext);
 
   // For Lua
   if (normalizedExt === '.lua') {
@@ -151,32 +229,19 @@ export function extractExportedSymbols(content: string, ext: string): string[] {
     return Array.from(rbSymbols);
   }
 
+  // For HTML / HTM (embedded <script> blocks, including non-module SPA scripts)
+  if (normalizedExt === '.html' || normalizedExt === '.htm') {
+    const scriptCode = extractScriptBlocks(content);
+    if (!scriptCode.trim()) return [];
+    return extractJsSymbols(scriptCode, true);
+  }
+
   // For TS / JS / Vue / Svelte
-  const symbols = new Set<string>();
-  let codeToScan = content;
-  if (normalizedExt === '.svelte') {
-    const scriptMatch = content.match(/<script\b[^>]*>([\s\S]*?)<\/script>/i);
-    if (scriptMatch) {
-      codeToScan = scriptMatch[1]!;
-    }
-  }
-
-  const lines = codeToScan.split(/\r?\n/);
-
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed.startsWith('export ')) continue;
-
-    // export [default] (function|class|interface|type|enum|const|let|var) <Name>
-    const match = trimmed.match(
-      /^export\s+(?:default\s+)?(?:async\s+)?(?:function\*?|class|interface|type|enum|const|let|var)\s+([a-zA-Z0-9_$]+)/
-    );
-    if (match && match[1]) {
-      symbols.add(match[1]);
-    }
-  }
-
-  return Array.from(symbols);
+  const codeToScan =
+    normalizedExt === '.svelte' || normalizedExt === '.vue'
+      ? extractScriptBlocks(content) || content
+      : content;
+  return extractJsSymbols(codeToScan, false);
 }
 
 /**
@@ -185,6 +250,7 @@ export function extractExportedSymbols(content: string, ext: string): string[] {
 export class AstCache {
   public static computeSha256 = computeSha256;
   public static extractExportedSymbols = extractExportedSymbols;
+  public static extractIndexableContent = extractIndexableContent;
 
   private workspaceRoot: string;
   private cachePath: string;
